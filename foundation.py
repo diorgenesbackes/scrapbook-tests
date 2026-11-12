@@ -2,6 +2,7 @@
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -13,6 +14,20 @@ import events_local  # noqa: E402
 
 def run():
     config = events_local.configuration()
+    original_host = os.environ.get('DOCKER_HOST')
+    try:
+        os.environ['DOCKER_HOST'] = 'ssh://remote.invalid'
+        rejected = False
+        try:
+            events_local.require_local_docker()
+        except ValueError:
+            rejected = True
+        assert rejected, 'Remote Docker context was accepted'
+    finally:
+        if original_host is None:
+            os.environ.pop('DOCKER_HOST', None)
+        else:
+            os.environ['DOCKER_HOST'] = original_host
 
     def runtime_sql(sql, denied=False):
         shell = ('IFS= read -r PGPASSWORD; export PGPASSWORD; '
@@ -110,5 +125,5 @@ ROLLBACK;
     assert inventory == {'migrations': 47, 'tables': 33}
     print(json.dumps({'suite': 'foundation', 'passed': True, 'idempotent_actor': True,
                       'runtime_dml_rollback': True, 'ddl_denied': True, 'actor_collision_refused': True,
-                      'unused_actor_rollback': True,
+                      'unused_actor_rollback': True, 'remote_docker_rejected': True,
                       'grants_rollback_replay': True, **inventory}))
