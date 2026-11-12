@@ -5,6 +5,21 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using ScrapBook.Api.Modules.Events;
 
+if (args.FirstOrDefault() == "models")
+{
+    try { await DatabaseProbes.RunAsync(); }
+    catch (Exception error)
+    {
+        Console.Error.WriteLine(System.Text.Json.JsonSerializer.Serialize(new
+        {
+            probe = "events_postgresql_mapping", passed = false, error = error.GetType().Name,
+            sqlState = (error.InnerException as Npgsql.PostgresException)?.SqlState
+        }));
+        Environment.ExitCode = 1;
+    }
+    return;
+}
+
 var root = Path.Combine(Path.GetTempPath(), "scrapbook-probe-" + Guid.NewGuid().ToString("N"));
 try
 {

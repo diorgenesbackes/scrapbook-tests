@@ -4,6 +4,7 @@ import argparse
 import concurrent.futures
 import json
 import math
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -31,7 +32,7 @@ def local_url(value):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('suite', choices=['preflight', 'keys', 'foundation', 'health-load'])
+    parser.add_argument('suite', choices=['preflight', 'keys', 'foundation', 'health-load', 'models'])
     parser.add_argument('--base-url', type=local_url, default='http://127.0.0.1:5080')
     parser.add_argument('--duration', type=int, default=5)
     args = parser.parse_args()
@@ -45,6 +46,17 @@ def main():
     elif args.suite == 'foundation':
         from foundation import run
         run()
+    elif args.suite == 'models':
+        sys.path.insert(0, str(ROOT.parent / 'scrapbook-infrastructure/scripts'))
+        import events_local
+        config = events_local.configuration()
+        events_local.require_local_docker()
+        actor = json.loads((events_local.STATE / 'actors.json').read_text())['owner']['accountId']
+        connection = ('Host=127.0.0.1;Port=' + config['POSTGRES_PORT'] + ';Database=' + config['POSTGRES_DB']
+                      + ';Username=' + config['POSTGRES_RUNTIME_USER'] + ';Password=' + config['POSTGRES_RUNTIME_PASSWORD']
+                      + ';Timeout=2;Command Timeout=4;Include Error Detail=false')
+        env = dict(os.environ, ConnectionStrings__ScrapBook=connection, SCRAPBOOK_PROBE_ACCOUNT_ID=actor)
+        subprocess.run(['dotnet', 'run', '--project', str(ROOT / 'probes'), '--no-restore', '--', 'models'], env=env, check=True)
     else:
         if not 1 <= args.duration <= 120:
             raise ValueError('Duração deve estar entre 1 e 120 segundos.')
