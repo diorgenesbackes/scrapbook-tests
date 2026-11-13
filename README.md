@@ -32,6 +32,7 @@ As suítes são manuais; não são executadas em merge, deploy ou startup da apl
 Restaurar/compilar `scrapbook-service` e executar `npm run build` em `scrapbook-ui` antes. Instalar os requisitos acima, Liquibase 4.33.0/Java e iniciar Docker local. A partir deste repositório:
 
 ```bash
+python3 journeys.py models
 python3 journeys.py backend
 python3 journeys.py browser
 python3 journeys.py load
@@ -60,3 +61,7 @@ O `.gitignore` cobre dependências e saídas comuns de Node, Python e .NET para 
 ## Contribuição
 
 A branch principal é `main`. Seguir o [guia de contribuição](https://github.com/diorgenesbackes/scrapbook-docs/blob/main/AGENTS.md) e o [Git Flow](https://github.com/diorgenesbackes/scrapbook-docs/blob/main/guidelines/git-flow.md). Versionar manifests e lockfiles; dependências instaladas, artefatos gerados e segredos permanecem locais.
+
+## Consumidores após RF-STORY-001
+
+Os probes usam os namespaces por conceito e o ScrapBookDbContext único. O inventário esperado passa a cinco mapeamentos (quatro Events e conta Identity); autorização é conferida por IEventRepository. `journeys.py models` executa o probe em banco descartável, sem precisar iniciar o Compose do usuário. backend/all também incluem esse probe. A suíte verifica os mesmos contratos após a migração para Controllers MVC. No complemento de isolamento, Models/Enums/Builders/Requests/Responses e entidades POCO passam a ScrapBook.Domain; probes usam Domain.Entities. DbContext/configurações EF continuam em Infrastructure. Services são exclusivos de Application, e os adaptadores técnicos permanecem nas camadas externas.
