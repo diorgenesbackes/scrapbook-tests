@@ -81,3 +81,11 @@ Execução manual: `npx playwright test --config visual-identity.config.ts`. O r
 Cobre inventário FR-001–FR-022, 38 telas/178 estados em 320/1440px e Chromium/WebKit, layouts representativos em 320/390/768/1440px, proporções de mídia, assets, teclado/foco/abas/diálogo, proteção de bloqueio/recibo, alteração de nome/concordância e contadores. Inclui texto 200% e reduced motion. Relatório JSON e capturas em artifacts/visual-identity*, ignorados pelo Git; evidências selecionadas/revisadas ficam na documentação.
 
 A suíte não comprova acessibilidade integral, leitor de tela, aparelhos físicos, usabilidade, Cognito ou captura/upload/reprodução reais. A proposta visual depende da revisão do responsável antes do aceite.
+
+## Página pública do evento (PP-STORY-001)
+
+Execução manual: `python3 public_event.py`, após build das imagens com `python3 scripts/stack_local.py build` em infrastructure. Usa o Compose real com banco/portas/volumes exclusivos, mesmas 47 migrations, 1.000 eventos sintéticos e identidade desabilitada em Production durante os acessos públicos.
+
+Cobre projeção mínima, códigos inválidos/PK/caixa/padding, correlação, autorização privada, ausência de gravações nas tabelas de aplicação, uso do índice existente, OpenAPI, proxy e fallback SPA. Playwright inclui acesso direto, reload, nova aba, teclado/foco e layout em Chromium e WebKit emulado. Carga: 10 concorrentes por 60s, zero erros e p95 ≤500ms; não mede upload ou AWS.
+
+Relatórios e capturas ignorados em `artifacts/public-event*`; evidência revisada fica em scrapbook-docs. Cleanup remove somente o projeto/volumes descartáveis desta execução. Não rodar contra banco compartilhado ou volume persistente. A configuração `public_event.config.ts` pode ser chamada separadamente somente com URLs loopback e manifesto privado preparados pelo runner.
