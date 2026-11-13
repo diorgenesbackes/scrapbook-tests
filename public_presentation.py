@@ -68,7 +68,7 @@ def main():
         assert (ROOT.parent / 'scrapbook-ui/src/shared/styles/tokens.css').read_text() == (ROOT.parent / 'scrapbook-docs/visual-identity/tokens.css').read_text()
         schema = request(lab.api_url, path='/openapi/v1.json')[2]
         required = schema['components']['schemas']['PublicEventResponse']['required']
-        assert set(required) == {'code', 'name', 'effectiveWelcomeMessage', 'cover'}
+        assert set(required) == {'code', 'name', 'effectiveWelcomeMessage', 'cover', 'publicUrl'}
         report['openapi'] = True
         report['functional'], baseline = contracts(lab, events)
         report['page_performance'] = run_browser(lab, data)
@@ -83,6 +83,7 @@ def main():
                           SCRAPBOOK_DEVELOPMENT_ACCOUNT_ID=lab.actor)
         lab.save_environment()
         lab.compose('up', '-d', '--no-build', '--wait', '--wait-timeout', '120', 'service')
+        lab.wait_proxy()
         report['management_regression'] = management_browser(lab)
     report['finished_at'] = datetime.now(timezone.utc).isoformat()
     (ROOT / 'artifacts/public-presentation-report.json').write_text(json.dumps(report, indent=2) + '\n')

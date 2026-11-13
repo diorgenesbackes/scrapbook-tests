@@ -7,6 +7,7 @@ import re
 import secrets
 import subprocess
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta
@@ -32,6 +33,7 @@ class ComposeLab:
             'POSTGRES_PASSWORD': self.passwords['admin'], 'POSTGRES_PORT': str(self.db_port),
             'POSTGRES_MIGRATOR_USER': 'scrapbook_migrator', 'POSTGRES_MIGRATOR_PASSWORD': self.passwords['migrator'],
             'POSTGRES_RUNTIME_USER': 'scrapbook_runtime', 'POSTGRES_RUNTIME_PASSWORD': self.passwords['runtime'],
+            'SCRAPBOOK_PUBLIC_ORIGIN': self.ui_url, 'SCRAPBOOK_PUBLIC_ALLOW_HTTP_LOOPBACK': 'true',
             'UI_PORT': str(self.ui_port), 'SERVICE_PORT': str(self.api_port), 'SCRAPBOOK_IMAGE_TAG': 'local',
             'SCRAPBOOK_ENVIRONMENT': 'Production', 'SCRAPBOOK_DEVELOPMENT_IDENTITY': 'false',
             'SCRAPBOOK_DEVELOPMENT_ACCOUNT_ID': '0',
@@ -67,6 +69,19 @@ class ComposeLab:
     def start_ui(self):
         pass  # UI já é servida pelo container Nginx.
 
+    def wait_proxy(self):
+        # Após recriar só a API, aguardar propagação do DNS/keepalive no proxy.
+        # Probe GET operacional; não repetir comandos de escrita ou o cenário de negócio.
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            try:
+                if request(self.ui_url, path='/health')[2] == {'status': 'up'}:
+                    return
+            except (OSError, ValueError):
+                pass
+            time.sleep(.1)
+        raise AssertionError('Proxy não convergiu após recriar a API do laboratório')
+
     def inspect(self, service):
         container_id = self.compose('ps', '-q', service).stdout.strip()
         return json.loads(self.command(['docker', 'inspect', container_id]).stdout)[0]
@@ -93,6 +108,7 @@ class ComposeLab:
                                      "VALUES ('development:gestao-eventos:owner','Synthetic fixture',"
                                      "'gestao-eventos-owner@example.invalid','gestao-eventos-owner@example.invalid',true,'active') RETURNING id;")
             self.compose('up', '-d', '--no-build', '--wait', '--wait-timeout', '120', 'service', 'ui')
+            self.wait_proxy()
             assert request(self.api_url, path='/health')[2] == {'status': 'up'}
             assert request(self.ui_url, path='/health')[2] == {'status': 'up'}
             assert request(self.ui_url)[0] == 401
@@ -100,6 +116,7 @@ class ComposeLab:
                                SCRAPBOOK_DEVELOPMENT_ACCOUNT_ID=self.actor)
             self.save_environment()
             self.compose('up', '-d', '--no-build', '--wait', '--wait-timeout', '120', 'service', 'ui')
+            self.wait_proxy()
             assert request(self.ui_url)[0] == 200
             return self
         except BaseException:

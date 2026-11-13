@@ -73,6 +73,7 @@ class EventLab:
         self.logs.append(log)
         env = dict(os.environ, ASPNETCORE_ENVIRONMENT=environment, DOTNET_ENVIRONMENT=environment,
                    ASPNETCORE_URLS=base, ConnectionStrings__ScrapBook=self.connection,
+                   PublicSite__Origin=self.ui_url, PublicSite__AllowHttpLoopback='true',
                    DevelopmentIdentity__Enabled=str(enabled).lower(),
                    DevelopmentIdentity__AccountId=str(account if account is not None else self.actors.get(actor, 0)),
                    DevelopmentIdentity__AllowedOrigins__0=self.ui_url,
