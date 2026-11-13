@@ -73,3 +73,11 @@ Após construir as imagens com `python3 scripts/stack_local.py build` em infrast
 A suíte usa o compose.yaml real com projeto aleatório, credenciais/portas/rede/volumes próprios, aplica as mesmas 47 migrations e prepara runtime DML/fixture sintética. Confere identidade desativada por padrão, DNS interno, API/UI sem root e filesystem somente leitura, ausência de SDK/Node no runtime, health direto/proxy, SPA/assets, JSON/versão/auditoria, dados e cursor após down/up, 14 jornadas e H-03 através de Nginx→API→PostgreSQL. Não usa o Compose/volume persistente do usuário.
 
 Relatório sanitizado: artifacts/docker-stack-report.json. Diagnóstico privado de comando que falhou: artifacts/docker-stack-private.log; logs recentes dos containers: artifacts/docker-stack-containers-private.log. Nunca versionar esses diagnósticos. A carga imprime métricas agregadas antes de aplicar os critérios de aceite, inclusive quando falhar. Cleanup remove somente os volumes do projeto scrapbook-docker-test-<identificador>. O uso de down --volumes pertence exclusivamente a esse laboratório; a parada habitual preserva volumes.
+
+## Catálogo de identidade visual
+
+Execução manual: `npx playwright test --config visual-identity.config.ts`. O runner inicia/encerra um servidor HTTP exclusivo em loopback:4175 que serve somente scrapbook-docs/visual-identity. Não usa API, banco ou stack persistente.
+
+Cobre inventário FR-001–FR-022, 38 telas/178 estados em 320/1440px e Chromium/WebKit, layouts representativos em 320/390/768/1440px, proporções de mídia, assets, teclado/foco/abas/diálogo, proteção de bloqueio/recibo, alteração de nome/concordância e contadores. Inclui texto 200% e reduced motion. Relatório JSON e capturas em artifacts/visual-identity*, ignorados pelo Git; evidências selecionadas/revisadas ficam na documentação.
+
+A suíte não comprova acessibilidade integral, leitor de tela, aparelhos físicos, usabilidade, Cognito ou captura/upload/reprodução reais. A proposta visual depende da revisão do responsável antes do aceite.
