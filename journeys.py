@@ -172,7 +172,8 @@ def performance(lab):
         values = sorted(value for result, _ in samples for value in result[operation])
         errors = sum(failures[operation] for _, failures in samples)
         report['operations'][operation] = {'requests': len(values), 'errors': errors, 'p95_ms': round(values[math.ceil(len(values) * .95) - 1], 3)}
-        assert errors == 0 and report['operations'][operation]['p95_ms'] <= 500, 'H-03 target was not met'
+    print(json.dumps({'performance_results': report}), flush=True)
+    assert all(result['errors'] == 0 and result['p95_ms'] <= 500 for result in report['operations'].values()), 'H-03 target was not met'
     return report
 
 
