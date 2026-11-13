@@ -191,6 +191,7 @@ def run(lab):
     operations = [operation for path, verbs in spec['paths'].items() for method, operation in verbs.items() if method in ['post', 'get', 'put']]
     assert status == 200 and len(operations) == 5
     assert {op['operationId'] for op in operations} == {'CreateEvent', 'ListEvents', 'GetEvent', 'UpdateEvent', 'UpdateEventAccess'}
+    assert all('500' in op['responses'] for op in operations)
     schema = spec['components']['schemas']['UpdateEventRequest']
     assert set(schema['required']) == {'name', 'startsAt', 'welcomeMessage', 'expectedVersion'}
     assert schema['additionalProperties'] is False

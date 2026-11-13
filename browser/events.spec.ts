@@ -127,6 +127,21 @@ test('estrutura travada mantém abertura independente e não revela recebimentos
   const response = await (await page.request.get(lab!.owner + '/api/v1/events/' + lab!.lockedId)).json()
   expect(Object.keys(response)).not.toContain('firstRecordId')
   expect(Object.keys(response)).not.toContain('lockedAt')
+  const rejected = await page.request.put(lab!.owner + '/api/v1/events/' + lab!.lockedId, {
+    data: { name: 'Denied structural change', startsAt: response.startsAt, welcomeMessage: null, expectedVersion: response.version },
+  })
+  expect(rejected.status()).toBe(409)
+  expect((await rejected.json()).code).toBe('EVENT_LOCKED')
+  const access = page.getByRole('form', { name: 'Configuração de abertura', exact: true })
+  const mode = access.getByLabel('Quando abrir as lembranças')
+  if (await mode.inputValue() === 'immediate') {
+    await mode.selectOption('scheduled')
+    await access.getByLabel('Data de abertura (Brasília)', { exact: true }).fill(lab!.openingDate)
+  } else {
+    await mode.selectOption('immediate')
+  }
+  await access.getByRole('button', { name: 'Salvar abertura' }).click()
+  await expect(access.getByText('Salvamento confirmado.', { exact: true })).toBeVisible()
 })
 
 test('distingue vazio, identidade ausente e indisponibilidade com um único retry GET', async ({ page }) => {
