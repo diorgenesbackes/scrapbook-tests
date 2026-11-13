@@ -89,3 +89,11 @@ Execução manual: `python3 public_event.py`, após build das imagens com `pytho
 Cobre projeção mínima, códigos inválidos/PK/caixa/padding, correlação, autorização privada, ausência de gravações nas tabelas de aplicação, uso do índice existente, OpenAPI, proxy e fallback SPA. Playwright inclui acesso direto, reload, nova aba, teclado/foco e layout em Chromium e WebKit emulado. Carga: 10 concorrentes por 60s, zero erros e p95 ≤500ms; não mede upload ou AWS.
 
 Relatórios e capturas ignorados em `artifacts/public-event*`; evidência revisada fica em scrapbook-docs. Cleanup remove somente o projeto/volumes descartáveis desta execução. Não rodar contra banco compartilhado ou volume persistente. A configuração `public_event.config.ts` pode ser chamada separadamente somente com URLs loopback e manifesto privado preparados pelo runner.
+
+## Apresentação pública (PP-STORY-002)
+
+Executar manualmente `python3 public_presentation.py` após construir imagens em infrastructure. O laboratório Compose usa seus próprios recursos, aplica as mesmas 47 migrations e prepara 1000 eventos de carga mais quatro fixtures de apresentação. Verifica edição/restauração da mensagem via gestão, projeção pública exata, autorização, leitura sem escrita, capa pública, markup seguro, Unicode, layout, árvore acessível e revalidação.
+
+Playwright `public_presentation.config.ts`: Chromium e WebKit emulados, mais Chromium com cinco amostras frias de página pronta em perfil 4G declarado (10/2Mbps, 80ms, CPU 4×, 390×844, cache desligado, limite 3s). Carga separada de API: dez clientes por 60s. Inclui 14 cenários de regressão da gestão. Relatórios/capturas em artifacts/public-presentation*, ignorados; evidências revisadas na documentação.
+
+`public_event.py` evolui suas asserções para os campos aditivos da apresentação; o código histórico de PP-STORY-001 continua acessível pelas revisões daquela entrega. Snapshots de todas as tabelas de aplicação preservam o contrato somente leitura. Não há teste com leitor de tela/aparelho físico ou AWS; árvore acessível é uma verificação semântica parcial.

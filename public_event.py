@@ -32,6 +32,16 @@ def create(lab, index):
     return event['id']
 
 
+def event_records(lab):
+    return json.loads(lab.scalar("SELECT json_agg(json_build_object('id',id::text,'code',code,'name',name,'welcomeMessage',welcome_message) ORDER BY id) FROM events.events;"))
+
+
+def public_projection(event):
+    return {'code': event['code'], 'name': event['name'],
+            'effectiveWelcomeMessage': event['welcomeMessage'] if event['welcomeMessage'] is not None else 'Seja bem-vindo! Compartilhe uma lembrança deste evento.',
+            'cover': {'kind': 'default', 'assetKey': 'event-cover-default-v1'}}
+
+
 def public_path(event):
     return '/api/v1/public/events/' + event['code']
 
@@ -42,7 +52,7 @@ def contracts(lab, events):
     for event in events[:2]:
         for base in [lab.ui_url, lab.api_url]:
             status, headers, data = request(base, path=public_path(event))
-            assert status == 200 and data == {'code': event['code']}
+            assert status == 200 and data == public_projection(event)
             assert headers['Cache-Control'] == 'no-store'
             uuid.UUID(headers['X-Correlation-Id'])
             assert 'Set-Cookie' not in headers
@@ -74,21 +84,21 @@ def contracts(lab, events):
     lab.save_environment()
     lab.compose('up', '-d', '--no-build', '--wait', '--wait-timeout', '120', 'service')
     assert request(lab.ui_url, path='/api/v1/events/' + events[0]['id'])[0] == 404
-    assert request(lab.ui_url, path=public_path(events[0]))[2] == {'code': events[0]['code']}
+    assert request(lab.ui_url, path=public_path(events[0]))[2] == public_projection(events[0])
     lab.values.update(SCRAPBOOK_ENVIRONMENT='Production', SCRAPBOOK_DEVELOPMENT_IDENTITY='false',
                       SCRAPBOOK_DEVELOPMENT_ACCOUNT_ID='0')
     lab.save_environment()
     lab.compose('up', '-d', '--no-build', '--wait', '--wait-timeout', '120', 'service')
     assert request(lab.ui_url, path='/api/v1/events/' + events[0]['id'])[0] == 401
     assert request(lab.ui_url, 'PUT', '/api/v1/events/' + events[0]['id'], {})[0] == 401
-    assert request(lab.ui_url, path=public_path(events[0]), headers={'Cookie': 'invalid=ignored', 'Authorization': 'Bearer invalid'})[2] == {'code': events[0]['code']}
+    assert request(lab.ui_url, path=public_path(events[0]), headers={'Cookie': 'invalid=ignored', 'Authorization': 'Bearer invalid'})[2] == public_projection(events[0])
     checks.append('anonymous_in_production_and_private_authorization')
     # Only intentional fixture writes may differ from the first snapshot.
     after = snapshot(lab)
     assert all(before[table] == value for table, value in after.items() if table != 'identity.accounts')
     baseline = snapshot(lab)
     for event in events:
-        assert request(lab.ui_url, path=public_path(event))[2] == {'code': event['code']}
+        assert request(lab.ui_url, path=public_path(event))[2] == public_projection(event)
     assert snapshot(lab) == baseline
     checks.append('all_application_tables_unchanged_by_reads')
     assert lab.scalar('SELECT count(*) FROM public.databasechangelog;') == '47'
@@ -116,14 +126,14 @@ def performance(lab, events, *, seconds=60, workers=10):
     def worker(index):
         for _ in range(3):
             assert request(lab.ui_url, path=public_path(events[index]))[0] == 200
-        barrier.wait()
+        barrier.wait(timeout=15)
         deadline, durations, errors, cursor = time.monotonic() + seconds, [], 0, index
         while time.monotonic() < deadline:
             event = events[cursor % len(events)]
             start = time.perf_counter()
             try:
                 status, _, body = request(lab.ui_url, path=public_path(event))
-                if status != 200 or body != {'code': event['code']}:
+                if status != 200 or body != public_projection(event):
                     errors += 1
             except (OSError, ValueError):
                 errors += 1
@@ -151,7 +161,7 @@ def main():
               'python': platform.python_version(), 'environment': 'isolated-local-compose', 'deployed': False}
     with ComposeLab() as lab:
         event_ids = [create(lab, index) for index in range(1000)]
-        events = json.loads(lab.scalar("SELECT json_agg(json_build_object('id',id::text,'code',code) ORDER BY id) FROM events.events;"))
+        events = event_records(lab)
         assert len(events) == len(event_ids) == 1000
         print(json.dumps({'fixtures_ready': len(events)}), flush=True)
         lab.sql('ANALYZE events.events;')
