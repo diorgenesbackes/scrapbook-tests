@@ -4,7 +4,7 @@ Repositório reservado às suítes HTTP, integração com PostgreSQL, navegador,
 
 ## Estado atual
 
-A preparação de Gestão de Eventos inclui runner Python com biblioteca padrão, probes .NET 10 e Playwright **1.65.0** para Chromium/WebKit. Os cenários funcionais completos continuam sendo implementados conforme o [FDD](https://github.com/diorgenesbackes/scrapbook-docs/blob/main/fdd/FDD-Gestao-de-Eventos/FDD-Gestao-de-Eventos.md) e o [planejamento](https://github.com/diorgenesbackes/scrapbook-docs/blob/main/fdd/FDD-Gestao-de-Eventos/1-planejamento.md). Não há k6 instalado nem execução automática em CI.
+A feature `GE-STORY-001` inclui Python 3.13.15/biblioteca padrão, probes .NET e Playwright **1.65.0**. Implementa contratos HTTP, isolamento, concorrência, falhas transacionais, jornadas de navegador e perfil de carga H-03. Não há k6 instalado nem execução automática em CI. A branch não foi promovida/publicada.
 
 Os unitários permanecem em `scrapbook-service` e `scrapbook-ui`. O projeto Liquibase mantém suas próprias validações de migrations.
 
@@ -25,7 +25,29 @@ python3 run.py keys
 
 Os comandos precisam de Docker e SDK .NET 10/Node 26.13.0/npm 11.20.0. Playwright tem perfis Chromium desktop e WebKit móvel emulado, sem equivalência a validação em aparelhos físicos. Relatórios, traces e navegadores instalados não entram no Git.
 
-As suítes deste repositório terão acionamento manual; não serão executadas automaticamente em merge, deploy ou startup da aplicação. Documentar cada comando ao implementar o respectivo runner.
+As suítes são manuais; não são executadas em merge, deploy ou startup da aplicação.
+
+## Jornadas de Events em banco descartável
+
+Restaurar/compilar `scrapbook-service` e executar `npm run build` em `scrapbook-ui` antes. Instalar os requisitos acima, Liquibase 4.33.0/Java e iniciar Docker local. A partir deste repositório:
+
+```bash
+python3 journeys.py backend
+python3 journeys.py browser
+python3 journeys.py load
+python3 journeys.py all
+```
+
+`event_lab.py` exige socket Unix local, cria container/portas loopback exclusivos e aplica as mesmas 47 migrations com migrador sem superusuário. Prepara runtime DML e três contas sintéticas. APIs usam contas fixas por configuração; nenhuma credencial vai para argumentos, manifesto de navegador ou relatório. O container descartável e processos são encerrados ao final; o Compose/volume persistente do usuário não é alterado.
+
+- `backend`: contratos, paginação, conta alheia/segundo responsável, rollback antecipado/diferível, gatilhos, transições e obrigações antigas; depois indisponibilidade/lock, orçamento compartilhado e privacidade.
+- `browser`: contratos HTTP + 14 jornadas em Chromium desktop e WebKit/iPhone emulado, com fusos Tokyo/Los Angeles, build de produção servido por preview e proxy para a API do laboratório.
+- `load`: completa a massa em 200 eventos, aquece três ciclos por worker e executa 10 concorrentes por 60s. Cada worker atualiza evento próprio com versão válida; mede lista/detalhe/update separadamente, exige zero erros e p95 ≤500ms.
+- `all`: executa todas essas etapas na mesma base exclusiva; relatório sanitizado em `artifacts/all-report.json`. Saídas brutas e capturas ficam ignoradas; evidência revisada é versionada em scrapbook-docs.
+
+As falhas injetadas, funções/triggers temporários e snapshot estrutural travado existem somente nesse laboratório. Não representam implementação de Records/consumidor ou convites. O cleanup elimina o container exclusivo inteiro, sem tentar apagar eventos/auditoria em uma base real. Interromper o runner permite o bloco finally executar; após kill abrupto, conferir/remover somente o container `scrapbook-events-test-<identificador>` da execução conhecida.
+
+O teste temporal usa relógio real do PostgreSQL com eventos já encerrados e valida janela 12h/13h; os instantes exatos antes/no/depois do meio-dia são cobertos por unitários substituíveis, sem afirmar execução de integração durante o minuto real de 12h. Emulação não substitui aparelhos físicos, leitor de tela ou auditoria WCAG completa. H-03 não mede os 200 uploads do PRD nem infraestrutura AWS.
 
 Usar fixtures sintéticas, destino explicitamente validado e limpeza restrita à própria massa. Registrar ambiente, revisão, comandos, resultado, falhas e testes não executados nos ciclos de `scrapbook-docs/testing/`, quando existirem.
 
