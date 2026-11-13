@@ -33,7 +33,7 @@ def create(lab, index):
 
 
 def event_records(lab):
-    rows = json.loads(lab.scalar("SELECT json_agg(json_build_object('id',id::text,'code',code,'name',name,'welcomeMessage',welcome_message) ORDER BY id) FROM events.events;"))
+    rows = json.loads(lab.scalar("SELECT json_agg(json_build_object('id',id::text,'code',code,'name',name,'welcomeMessage',welcome_message,'startsAt',starts_at) ORDER BY id) FROM events.events;"))
     origin = getattr(lab, 'values', {}).get('SCRAPBOOK_PUBLIC_ORIGIN', lab.ui_url)
     return [{**row, 'publicUrl': origin + '/e/' + row['code']} for row in rows]
 
@@ -48,13 +48,42 @@ def public_path(event):
     return '/api/v1/public/events/' + event['code']
 
 
+def valid_public_projection(data, event):
+    """Confere campos estáticos e janela a partir da referência retornada, nunca da hora do cliente."""
+    try:
+        expected = public_projection(event)
+        if set(data) != set(expected) | {'serverTime', 'submissionWindow'}:
+            return False
+        if any(data[key] != value for key, value in expected.items()):
+            return False
+        instant = datetime.fromisoformat(data['serverTime'])
+        if not data['serverTime'].endswith('Z') or instant.utcoffset() != timedelta(0):
+            return False
+        civil = instant.astimezone(ZoneInfo('America/Sao_Paulo')).replace(tzinfo=None)
+        starts = datetime.fromisoformat(event['startsAt'])
+        opens = starts - timedelta(hours=2)
+        closes = starts.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1, hours=12)
+        state = 'not_open' if civil < opens else 'open' if civil < closes else 'closed'
+        target = opens if state == 'not_open' else closes if state == 'open' else None
+        budget = 30000 if target is None else min(30000, max(0, math.floor((target-civil).total_seconds()*1000)))
+        window = data['submissionWindow']
+        # serverTime é serializado em milissegundos; o cálculo usa a precisão completa do servidor.
+        actual = window['revalidateAfterMs']
+        return (set(window) == {'state', 'opensAt', 'closesAt', 'timeZone', 'revalidateAfterMs'}
+                and window['state'] == state and window['timeZone'] == 'America/Sao_Paulo'
+                and window['opensAt'] == opens.isoformat() and window['closesAt'] == closes.isoformat()
+                and type(actual) is int and 0 <= actual <= 30000 and budget-1 <= actual <= budget)
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return False
+
+
 def contracts(lab, events):
     checks = []
     before = snapshot(lab)
     for event in events[:2]:
         for base in [lab.ui_url, lab.api_url]:
             status, headers, data = request(base, path=public_path(event))
-            assert status == 200 and data == public_projection(event)
+            assert status == 200 and valid_public_projection(data, event)
             assert headers['Cache-Control'] == 'no-store'
             uuid.UUID(headers['X-Correlation-Id'])
             assert 'Set-Cookie' not in headers
@@ -87,7 +116,7 @@ def contracts(lab, events):
     lab.compose('up', '-d', '--no-build', '--wait', '--wait-timeout', '120', 'service')
     lab.wait_proxy()
     assert request(lab.ui_url, path='/api/v1/events/' + events[0]['id'])[0] == 404
-    assert request(lab.ui_url, path=public_path(events[0]))[2] == public_projection(events[0])
+    assert valid_public_projection(request(lab.ui_url, path=public_path(events[0]))[2], events[0])
     lab.values.update(SCRAPBOOK_ENVIRONMENT='Production', SCRAPBOOK_DEVELOPMENT_IDENTITY='false',
                       SCRAPBOOK_DEVELOPMENT_ACCOUNT_ID='0')
     lab.save_environment()
@@ -95,14 +124,14 @@ def contracts(lab, events):
     lab.wait_proxy()
     assert request(lab.ui_url, path='/api/v1/events/' + events[0]['id'])[0] == 401
     assert request(lab.ui_url, 'PUT', '/api/v1/events/' + events[0]['id'], {})[0] == 401
-    assert request(lab.ui_url, path=public_path(events[0]), headers={'Cookie': 'invalid=ignored', 'Authorization': 'Bearer invalid'})[2] == public_projection(events[0])
+    assert valid_public_projection(request(lab.ui_url, path=public_path(events[0]), headers={'Cookie': 'invalid=ignored', 'Authorization': 'Bearer invalid'})[2], events[0])
     checks.append('anonymous_in_production_and_private_authorization')
     # Only intentional fixture writes may differ from the first snapshot.
     after = snapshot(lab)
     assert all(before[table] == value for table, value in after.items() if table != 'identity.accounts')
     baseline = snapshot(lab)
     for event in events:
-        assert request(lab.ui_url, path=public_path(event))[2] == public_projection(event)
+        assert valid_public_projection(request(lab.ui_url, path=public_path(event))[2], event)
     assert snapshot(lab) == baseline
     checks.append('all_application_tables_unchanged_by_reads')
     assert lab.scalar('SELECT count(*) FROM public.databasechangelog;') == '47'
@@ -137,7 +166,7 @@ def performance(lab, events, *, seconds=60, workers=10):
             start = time.perf_counter()
             try:
                 status, _, body = request(lab.ui_url, path=public_path(event))
-                if status != 200 or body != public_projection(event):
+                if status != 200 or not valid_public_projection(body, event):
                     errors += 1
             except (OSError, ValueError):
                 errors += 1

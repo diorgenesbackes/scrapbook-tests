@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from docker_stack import ComposeLab
 from event_lab import ROOT, events_local, request
-from public_event import contracts, create, event_records, performance, public_path, public_projection, snapshot
+from public_event import contracts, create, event_records, performance, public_path, public_projection, valid_public_projection, snapshot
 from journeys import browser as management_browser
 
 
@@ -34,7 +34,7 @@ def fixtures(lab):
                                           'welcomeMessage': message, 'expectedVersion': current['version']})
         assert status == 200
         row = next(event for event in event_records(lab) if event['id'] == target)
-        assert request(lab.ui_url, path=public_path(row))[2] == public_projection(row)
+        assert valid_public_projection(request(lab.ui_url, path=public_path(row))[2], row)
         assert public_projection(row)['effectiveWelcomeMessage'] == updated['effectiveWelcomeMessage']
         current = updated
     rows = {event['id']: event for event in event_records(lab)}
@@ -68,7 +68,7 @@ def main():
         assert (ROOT.parent / 'scrapbook-ui/src/shared/styles/tokens.css').read_text() == (ROOT.parent / 'scrapbook-docs/visual-identity/tokens.css').read_text()
         schema = request(lab.api_url, path='/openapi/v1.json')[2]
         required = schema['components']['schemas']['PublicEventResponse']['required']
-        assert set(required) == {'code', 'name', 'effectiveWelcomeMessage', 'cover', 'publicUrl'}
+        assert set(required) == {'code', 'name', 'effectiveWelcomeMessage', 'cover', 'publicUrl', 'serverTime', 'submissionWindow'}
         report['openapi'] = True
         report['functional'], baseline = contracts(lab, events)
         report['page_performance'] = run_browser(lab, data)

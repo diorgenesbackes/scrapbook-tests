@@ -5,6 +5,17 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 
+if (args.FirstOrDefault() == "public-window")
+{
+    try { await PublicWindowHttpProbe.RunAsync(); }
+    catch (Exception error)
+    {
+        Console.Error.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { probe = "public_window_http", passed = false, error = error.GetType().Name }));
+        Environment.ExitCode = 1;
+    }
+    return;
+}
+
 if (args.FirstOrDefault() == "models")
 {
     try { await DatabaseProbes.RunAsync(); }
