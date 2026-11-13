@@ -20,6 +20,7 @@ test('page ready within three seconds under the declared 4G profile', async ({ b
       await expect(page.getByRole('heading', { name: manifest.normal.name })).toBeVisible()
       await expect(page.locator('.guest-message')).toHaveText(manifest.normal.effectiveWelcomeMessage)
       await expect.poll(() => page.locator('.guest-cover img').evaluate(element => (element as HTMLImageElement).complete && (element as HTMLImageElement).naturalWidth > 0)).toBe(true)
+      await expect(page.getByRole('img', { name: 'QR code para abrir a página pública do evento.' })).toBeVisible()
       const elapsed = await page.evaluate(() => performance.now())
       samples.push(Math.round(elapsed))
       expect(elapsed).toBeLessThanOrEqual(3000)

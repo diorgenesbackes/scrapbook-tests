@@ -97,3 +97,9 @@ Executar manualmente `python3 public_presentation.py` após construir imagens em
 Playwright `public_presentation.config.ts`: Chromium e WebKit emulados, mais Chromium com cinco amostras frias de página pronta em perfil 4G declarado (10/2Mbps, 80ms, CPU 4×, 390×844, cache desligado, limite 3s). Carga separada de API: dez clientes por 60s. Inclui 14 cenários de regressão da gestão. Relatórios/capturas em artifacts/public-presentation*, ignorados; evidências revisadas na documentação.
 
 `public_event.py` evolui suas asserções para os campos aditivos da apresentação; o código histórico de PP-STORY-001 continua acessível pelas revisões daquela entrega. Snapshots de todas as tabelas de aplicação preservam o contrato somente leitura. Não há teste com leitor de tela/aparelho físico ou AWS; árvore acessível é uma verificação semântica parcial.
+
+## Compartilhamento/QR (PP-STORY-003)
+
+Após npm ci e build das imagens, executar python3 event_sharing.py. Laboratório exclusivo valida dois responsáveis, outsider, código/PK, Host adulterado, origem HTTPS externa sintética e origem ausente. Não acessa o domínio sintético. Comparação de digests confirma leitura sem escrita. Configuração temporária é restrita aos containers próprios.
+
+Playwright em Chromium/WebKit: QR público, navegação anônima, PNG, clipboard manual, impressão em mídia emulada e exportação inválida. jsQR 1.4.0 (Apache-2.0) + pngjs 7.0.0 (MIT) leem independentemente o QR gerado por qrcode: preview, screenshot, PNG exportado e composição print. Artefatos em artifacts/event-sharing* são ignorados; evidências revisadas ficam nos docs. Papel/aparelhos reais não são simulados nem declarados aprovados por essas verificações.

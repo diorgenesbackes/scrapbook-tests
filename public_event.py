@@ -33,11 +33,13 @@ def create(lab, index):
 
 
 def event_records(lab):
-    return json.loads(lab.scalar("SELECT json_agg(json_build_object('id',id::text,'code',code,'name',name,'welcomeMessage',welcome_message) ORDER BY id) FROM events.events;"))
+    rows = json.loads(lab.scalar("SELECT json_agg(json_build_object('id',id::text,'code',code,'name',name,'welcomeMessage',welcome_message) ORDER BY id) FROM events.events;"))
+    origin = getattr(lab, 'values', {}).get('SCRAPBOOK_PUBLIC_ORIGIN', lab.ui_url)
+    return [{**row, 'publicUrl': origin + '/e/' + row['code']} for row in rows]
 
 
 def public_projection(event):
-    return {'code': event['code'], 'name': event['name'],
+    return {'code': event['code'], 'name': event['name'], 'publicUrl': event.get('publicUrl'),
             'effectiveWelcomeMessage': event['welcomeMessage'] if event['welcomeMessage'] is not None else 'Seja bem-vindo! Compartilhe uma lembrança deste evento.',
             'cover': {'kind': 'default', 'assetKey': 'event-cover-default-v1'}}
 
@@ -83,12 +85,14 @@ def contracts(lab, events):
     lab.values['SCRAPBOOK_DEVELOPMENT_ACCOUNT_ID'] = outsider
     lab.save_environment()
     lab.compose('up', '-d', '--no-build', '--wait', '--wait-timeout', '120', 'service')
+    lab.wait_proxy()
     assert request(lab.ui_url, path='/api/v1/events/' + events[0]['id'])[0] == 404
     assert request(lab.ui_url, path=public_path(events[0]))[2] == public_projection(events[0])
     lab.values.update(SCRAPBOOK_ENVIRONMENT='Production', SCRAPBOOK_DEVELOPMENT_IDENTITY='false',
                       SCRAPBOOK_DEVELOPMENT_ACCOUNT_ID='0')
     lab.save_environment()
     lab.compose('up', '-d', '--no-build', '--wait', '--wait-timeout', '120', 'service')
+    lab.wait_proxy()
     assert request(lab.ui_url, path='/api/v1/events/' + events[0]['id'])[0] == 401
     assert request(lab.ui_url, 'PUT', '/api/v1/events/' + events[0]['id'], {})[0] == 401
     assert request(lab.ui_url, path=public_path(events[0]), headers={'Cookie': 'invalid=ignored', 'Authorization': 'Bearer invalid'})[2] == public_projection(events[0])
@@ -191,6 +195,7 @@ def main():
                           SCRAPBOOK_DEVELOPMENT_ACCOUNT_ID=lab.actor)
         lab.save_environment()
         lab.compose('up', '-d', '--no-build', '--wait', '--wait-timeout', '120', 'service')
+        lab.wait_proxy()
         report['management_browser_regression'] = management_browser(lab)
     report['finished_at'] = datetime.now(timezone.utc).isoformat()
     (ROOT / 'artifacts').mkdir(exist_ok=True)

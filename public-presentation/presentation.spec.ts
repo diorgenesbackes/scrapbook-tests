@@ -13,7 +13,7 @@ test('renders real public presentation and only requests approved public resourc
   })
   await page.goto(`/e/${normal.code}`)
   await expect(page.getByRole('heading', { name: normal.name })).toBeFocused()
-  await expect(page.getByRole('img')).toBeVisible()
+  await expect(page.locator('.guest-cover img')).toBeVisible()
   await expect(page.locator('.guest-message')).toHaveText(normal.effectiveWelcomeMessage)
   expect(await page.locator('.guest-message').evaluate(element => getComputedStyle(element).whiteSpace)).toBe('pre-wrap')
   const tree = await page.locator('main').ariaSnapshot()
