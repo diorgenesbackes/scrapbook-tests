@@ -103,3 +103,13 @@ Playwright `public_presentation.config.ts`: Chromium e WebKit emulados, mais Chr
 Após npm ci e build das imagens, executar python3 event_sharing.py. Laboratório exclusivo valida dois responsáveis, outsider, código/PK, Host adulterado, origem HTTPS externa sintética e origem ausente. Não acessa o domínio sintético. Comparação de digests confirma leitura sem escrita. Configuração temporária é restrita aos containers próprios.
 
 Playwright em Chromium/WebKit: QR público, navegação anônima, PNG, clipboard manual, impressão em mídia emulada e exportação inválida. jsQR 1.4.0 (Apache-2.0) + pngjs 7.0.0 (MIT) leem independentemente o QR gerado por qrcode: preview, screenshot, PNG exportado e composição print. Artefatos em artifacts/event-sharing* são ignorados; evidências revisadas ficam nos docs. Papel/aparelhos reais não são simulados nem declarados aprovados por essas verificações.
+
+## Janela de novos envios (PP-STORY-004)
+
+Construir as imagens em infrastructure, compilar `dotnet build probes/ScrapBook.Probes.csproj --no-restore --disable-build-servers` e executar manualmente `python3 submission_window.py`. O laboratório Compose cria suas próprias portas/credenciais/volumes e aplica as mesmas 47 migrations. Não usa a stack persistente.
+
+O modo `public-window` do probe inicia Kestrel loopback com os controllers/middleware/repositório/serviço reais e o mesmo PostgreSQL DML, substituindo somente TimeProvider por leitura de arquivo privado de teste. Não usa o Program/composição completo da API de produção; o Compose real verifica esse host separadamente. Nenhum endpoint público altera hora e nenhuma opção de relógio é adicionada à aplicação. O teste cria e remove processo/arquivo exclusivos.
+
+Matriz HTTP cobre antes/no/depois de abertura/12h, 12h30/13h/depois, madrugada, viradas de mês/ano/bissexto e galeria independente. Browser encaminha somente o GET público selecionado ao host temporal; demais recursos usam Nginx real. Chromium Tokyo/WebKit Los Angeles têm Date fixada em 2099, mantendo timers monotônicos reais. Conferem transições em página aberta, QR preservado, falha/retorno, resposta antiga e edição de data pela API real. Outra jornada usa exclusivamente Compose, para parar e reiniciar o container service do próprio projeto e comparar prazos. Não altera relógio do SO, serviço persistente ou ambiente externo.
+
+Relatórios/capturas em artifacts/submission-window* são ignorados, com cópia revisada em docs. Comparações de regressão validam os campos dinâmicos a partir de serverTime, não igualdade integral entre respostas de instantes distintos. A medição 4G também aguarda disponibilidade e QR. Sem sessão de upload, aparelho físico ou leitor de tela real declarado.
