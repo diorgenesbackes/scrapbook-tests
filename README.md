@@ -65,3 +65,11 @@ A branch principal é `main`. Seguir o [guia de contribuição](https://github.c
 ## Consumidores após RF-STORY-001
 
 Os probes usam os namespaces por conceito e o ScrapBookDbContext único. O inventário esperado passa a cinco mapeamentos (quatro Events e conta Identity); autorização é conferida por IEventRepository. `journeys.py models` executa o probe em banco descartável, sem precisar iniciar o Compose do usuário. backend/all também incluem esse probe. A suíte verifica os mesmos contratos após a migração para Controllers MVC. No complemento de isolamento, Models/Enums/Builders/Requests/Responses e entidades POCO passam a ScrapBook.Domain; probes usam Domain.Entities. DbContext/configurações EF continuam em Infrastructure. Services são exclusivos de Application, e os adaptadores técnicos permanecem nas camadas externas.
+
+## Stack inteira em containers
+
+Após construir as imagens com `python3 scripts/stack_local.py build` em infrastructure, executar manualmente `python3 docker_stack.py` neste repositório. Requer Docker Compose, Liquibase/Java e Playwright instalados conforme os requisitos acima.
+
+A suíte usa o compose.yaml real com projeto aleatório, credenciais/portas/rede/volumes próprios, aplica as mesmas 47 migrations e prepara runtime DML/fixture sintética. Confere identidade desativada por padrão, DNS interno, API/UI sem root e filesystem somente leitura, ausência de SDK/Node no runtime, health direto/proxy, SPA/assets, JSON/versão/auditoria, dados e cursor após down/up, 14 jornadas e H-03 através de Nginx→API→PostgreSQL. Não usa o Compose/volume persistente do usuário.
+
+Relatório sanitizado: artifacts/docker-stack-report.json. Diagnóstico privado de comando que falhou: artifacts/docker-stack-private.log; logs recentes dos containers: artifacts/docker-stack-containers-private.log. Nunca versionar esses diagnósticos. A carga imprime métricas agregadas antes de aplicar os critérios de aceite, inclusive quando falhar. Cleanup remove somente os volumes do projeto scrapbook-docker-test-<identificador>. O uso de down --volumes pertence exclusivamente a esse laboratório; a parada habitual preserva volumes.
