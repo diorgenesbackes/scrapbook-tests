@@ -178,11 +178,16 @@ def performance(lab):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('stage', choices=['backend', 'browser', 'load', 'all'])
+    parser.add_argument('stage', choices=['backend', 'browser', 'load', 'models', 'all'])
     stage = parser.parse_args().stage
     report = {'started_at': datetime.now().astimezone().isoformat(), 'target': 'disposable local container', 'migrations': 47}
     Path(ROOT / 'artifacts').mkdir(exist_ok=True)
     with EventLab() as lab:
+        if stage in ['backend', 'models', 'all']:
+            subprocess.run(['dotnet', 'run', '--project', str(ROOT / 'probes'), '--no-restore', '--', 'models'],
+                           cwd=ROOT, env=dict(os.environ, ConnectionStrings__ScrapBook=lab.connection,
+                                              SCRAPBOOK_PROBE_ACCOUNT_ID=lab.actors['owner']), check=True)
+            report['models'] = 'unified scoped DbContext, five mappings, repository and rollback passed'
         if stage in ['backend', 'all', 'browser']:
             report['http'] = http_checks(lab)
         if stage in ['browser', 'all']:

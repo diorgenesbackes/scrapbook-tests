@@ -1,9 +1,9 @@
+using ScrapBook.Api.Extensions;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
-using ScrapBook.Api.Modules.Events;
 
 if (args.FirstOrDefault() == "models")
 {
@@ -30,7 +30,7 @@ try
     ServiceProvider Provider()
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddEventsDataProtection(configuration, new ProbeEnvironment());
+        services.AddCursorDataProtection(configuration, new ProbeEnvironment());
         return services.BuildServiceProvider();
     }
 
