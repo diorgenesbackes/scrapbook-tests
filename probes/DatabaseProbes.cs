@@ -3,7 +3,7 @@ using ScrapBook.Application.Interfaces;
 using ScrapBook.Domain.Clocks;
 using ScrapBook.Domain.Policies;
 using ScrapBook.Infrastructure.DbContexts;
-using ScrapBook.Infrastructure.Entities;
+using ScrapBook.Domain.Entities;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
