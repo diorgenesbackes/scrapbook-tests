@@ -138,3 +138,12 @@ Cobre aviso vigente/futuro/ausente/desempate, payload/headers, erro de banco san
 A regressão de gestão prepara 25 eventos de paginação e executa as 14 jornadas existentes. `python3 guest_identification.py --regression-only` permite retestar somente grants e gestão em laboratório novo. Verifica grants mínimos, revogação/reaplicação e leitura privada recusada. A suíte própria do Liquibase continua em scrapbook-liquibase/tests/verify.py.
 
 Relatórios/capturas ficam em artifacts/guest-identification*, ignorados. Falhas parciais são preservadas no relatório; não há retry automático de asserções/gravações. Cleanup remove somente recursos aleatórios desta execução, preservando imagens/tags e volumes do usuário. Leitor de tela e aparelhos reais continuam validações próprias.
+
+
+## Reutilização da identificação — IC-STORY-002
+
+Executar manualmente `python3 remembered_identification.py`. O runner constrói tag aleatória e usa somente Compose/volumes/portas próprios, mantendo a aplicação persistente parada. API e migrations não mudam; não repete carga nem as injeções de falha/rollback da IC-001.
+
+A configuração remembered_identification.config.ts combina 16 cenários novos (oito por motor) com 14 regressões de S17 e uma de performance 4G, mais 14 jornadas separadas de gestão/health. Valida recarga/nova aba, contexto e origem diferentes, A→B→A, aviso atual pendente/diferente, dados removidos, getter/quota recusados, rascunho não persistido, conteúdo mínimo e ausência de nome no tráfego/DOM público/QR/PNG. A leitura do QR usa jsQR independente, já existente.
+
+Artefatos em artifacts/remembered-identification*, ignorados pelo Git. Relatório preserva falhas parciais; não há retry automático. Não equivale a aparelho/leitor real, sincronização entre dispositivos ou validação do futuro backend de envios. A suíte antiga de S17 foi atualizada para o comportamento de recarga introduzido nesta história; evidências anteriores permanecem nas revisões históricas.
