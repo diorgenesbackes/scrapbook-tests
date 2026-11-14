@@ -1,5 +1,11 @@
 # Scrap Book — Testes não unitários
 
+## PP-STORY-006: privacidade pública
+
+Após construir imagens com `python3 scripts/stack_local.py build` em infrastructure e o probe com `dotnet build probes/ScrapBook.Probes.csproj --no-restore`, executar `python3 public_privacy.py` neste diretório. O runner aceita somente o laboratório loopback Compose aleatório e remove apenas seus volumes. Usa os 47 changesets, constraints habilitadas, dois textos confirmados e dois manifestos de foto com metadados privados, sem objetos reais no S3.
+
+Compara contratos antes/depois nos três estados de participação e modos de galeria, testa visitante/contas sintéticas e operações privadas existentes, captura SQL EF/spans/métricas no probe e executa dez casos Chromium/WebKit de rede/DOM/storage/navegação/Referer/redirect/QR/PNG/print. Verifica logs reais de API/edge inclusive erro 5xx, métodos categorizados e hashes de todas as tabelas. Resultado em artifacts/public-privacy-report.json; relatórios brutos e manifests continuam privados/ignorados. Não comprova Cognito, galeria/mídia futuras, exportador remoto, leitor real, papel ou dispositivos físicos.
+
 Repositório reservado às suítes HTTP, integração com PostgreSQL, navegador, segurança, carga e recuperação do Scrap Book, conforme o [HLD](https://github.com/diorgenesbackes/scrapbook-docs/blob/main/HLD.md) e os [guidelines](https://github.com/diorgenesbackes/scrapbook-docs/blob/main/guidelines/README.md).
 
 ## Estado atual
