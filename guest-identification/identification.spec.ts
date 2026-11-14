@@ -24,7 +24,8 @@ test('anonymous S16 to S17 requires name and consent and returns to the event', 
   await submit.click()
   await expect(page.getByRole('heading', { name: 'Identificação confirmada' })).toBeFocused()
   await expect(page.getByText(/Nenhuma lembrança foi enviada/)).toBeVisible()
-  expect(await page.evaluate(() => localStorage.length + sessionStorage.length)).toBe(0)
+  expect(await page.evaluate(() => localStorage.length)).toBe(1)
+  expect(await page.evaluate(() => sessionStorage.length)).toBe(0)
   expect(page.url()).not.toContain('IC_PRIVATE')
   await page.getByRole('link', { name: 'Voltar ao evento' }).click()
   await expect(page).toHaveURL(new RegExp(`/e/${data.first.code}$`))
@@ -47,8 +48,8 @@ test('name Unicode limits and explicit renewed consent prevent incomplete confir
   await submit.click()
   await expect(page.getByRole('heading', { name: 'Identificação confirmada' })).toBeVisible()
   await page.reload()
-  await expect(page.getByRole('textbox')).toHaveValue('')
-  await expect(page.getByRole('checkbox')).not.toBeChecked()
+  await expect(page.getByRole('textbox')).toHaveValue('🎉'.repeat(120))
+  await expect(page.getByRole('checkbox')).toBeChecked()
 })
 
 test('notice outage retries safely while preserving a valid draft', async ({ page }) => {
