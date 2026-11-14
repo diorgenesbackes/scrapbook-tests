@@ -127,3 +127,14 @@ Após build das imagens em infrastructure, executar manualmente `python3 public_
 Chromium/WebKit cobrem links guest inválidos, rede/503 HTML/429, cooldown sem retry automático, timeout de 6s, resposta tardia, duplo clique, foco e retry pelo teclado, banco indisponível com recuperação sem reload e janela encerrada atual, capa/QR isolados e consulta privada de compartilhamento. Mutação/restauração de data usa a API de gestão e grava fixture/auditoria intencionalmente. Transporte pode recusar URI antes da aplicação; documentar o status observado sem prometer Problem Details do edge.
 
 Relatórios/capturas em artifacts/public-recovery* são ignorados; evidências revisadas ficam nos docs. Não rodar essas injeções em dados compartilhados ou no Compose persistente. Não há SLA/AWS/aparelho físico/leitor de tela real declarado.
+
+
+## Primeira identificação — IC-STORY-001
+
+Execução manual: `python3 guest_identification.py`. Constrói imagens com tag aleatória e usa somente projeto/portas/volumes descartáveis. O master atual tem 48 changesets; as contagens 47 nas descrições históricas acima referem-se à base anterior. Os runners atuais foram ajustados para 48, mantendo 33 tabelas de negócio.
+
+Cobre aviso vigente/futuro/ausente/desempate, payload/headers, erro de banco sanitizado, snapshots sem escrita, nome/aceite e navegação anônima em Chromium/WebKit, 320 px/texto 200%, cancelamento, markup e privacidade. Inclui cinco amostras 4G e carga de leitura de 15 s/dez clientes sobre dois eventos, sem inferir SLA de produção. WebKit usa Alt+Tab para navegação completa por controles, como na suíte pública existente.
+
+A regressão de gestão prepara 25 eventos de paginação e executa as 14 jornadas existentes. `python3 guest_identification.py --regression-only` permite retestar somente grants e gestão em laboratório novo. Verifica grants mínimos, revogação/reaplicação e leitura privada recusada. A suíte própria do Liquibase continua em scrapbook-liquibase/tests/verify.py.
+
+Relatórios/capturas ficam em artifacts/guest-identification*, ignorados. Falhas parciais são preservadas no relatório; não há retry automático de asserções/gravações. Cleanup remove somente recursos aleatórios desta execução, preservando imagens/tags e volumes do usuário. Leitor de tela e aparelhos reais continuam validações próprias.

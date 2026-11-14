@@ -194,9 +194,9 @@ def persistence(lab, event_id):
     lab.compose('up', '-d', '--no-build', '--wait', '--wait-timeout', '120')
     assert request(lab.ui_url, path='/api/v1/events/' + event_id)[2]['name'] == 'Docker updated fixture'
     assert request(lab.ui_url, path='/api/v1/events?limit=1&cursor=' + token)[0] == 200
-    assert lab.scalar('SELECT count(*) FROM public.databasechangelog;') == '47'
+    assert lab.scalar('SELECT count(*) FROM public.databasechangelog;') == '48'
     assert lab.scalar("SELECT count(*) FROM information_schema.tables WHERE table_type='BASE TABLE' AND table_schema IN ('identity','events','records','notifications');") == '33'
-    return {'event_after_down_up': True, 'cursor_after_down_up': True, 'migrations': 47, 'tables': 33}
+    return {'event_after_down_up': True, 'cursor_after_down_up': True, 'migrations': 48, 'tables': 33}
 
 
 def main():
