@@ -205,5 +205,5 @@ if __name__ == '__main__':
     with EventLab() as environment:
         results = run(environment)
         print(json.dumps({'suite': 'events_http', 'passed': True, 'checks': results,
-                          'database': 'disposable', 'migrations': 47,
+                          'database': 'disposable', 'migrations': 48,
                           'limits': ['Exact wall-clock noon not executed; unit boundaries plus real DB 12h/13h window and closed policy tested.']}))

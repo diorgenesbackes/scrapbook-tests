@@ -121,7 +121,7 @@ class EventLab:
                           '--url=jdbc:postgresql://127.0.0.1:' + port + '/scrapbook_events_test',
                           '--username=scrapbook_ddl', 'update'],
                          env=dict(os.environ, LIQUIBASE_COMMAND_PASSWORD=self.password), cwd=LIQUIBASE)
-            assert self.scalar('SELECT count(*) FROM public.databasechangelog;') == '47'
+            assert self.scalar('SELECT count(*) FROM public.databasechangelog;') == '48'
             self.sql("BEGIN; SELECT set_config('scrapbook.runtime_user','scrapbook_runtime',true); SELECT set_config('scrapbook.runtime_password',"
                      + events_local.literal(self.password) + ',true);\n'
                      + (INFRA / 'postgres/development/provision-runtime.sql').read_text() + '\nCOMMIT;')

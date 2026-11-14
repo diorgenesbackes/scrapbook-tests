@@ -83,13 +83,18 @@ FROM pg_roles WHERE rolname = ''' + user + ';'))
         events_local.bootstrap_actor('other')
         events_local.rollback_actor('other')
         events_local.rollback_actor('other')
-    assert not any(role_profile().values()), 'Runtime has excessive privileges'
+    profile = role_profile()
+    assert profile.pop('records_usage') is True, 'Runtime cannot read the consent notice schema'
+    assert not any(profile.values()), 'Runtime has excessive privileges'
 
     runtime_sql('SELECT id,subject,state,email,email_verified FROM identity.accounts LIMIT 1;')
+    runtime_sql('SELECT id,code,body,effective_at FROM records.consent_notices LIMIT 1;')
     for statement in ['CREATE TABLE events.foundation_denied (id integer);',
                       'CREATE TEMP TABLE foundation_denied (id integer);',
                       'UPDATE identity.accounts SET state=state WHERE false;',
-                      'TRUNCATE events.events;']:
+                      'TRUNCATE events.events;',
+                      'SELECT * FROM records.records;',
+                      'SELECT body_hash FROM records.consent_notices;']:
         runtime_sql('BEGIN; ' + statement + ' ROLLBACK;', denied=True)
 
     runtime_sql('''
@@ -122,7 +127,7 @@ ROLLBACK;
             events_local.provision(config)
 
     inventory = json.loads(events_local.admin_sql("SELECT json_build_object('migrations', (SELECT count(*) FROM public.databasechangelog), 'tables', (SELECT count(*) FROM information_schema.tables WHERE table_schema IN ('identity','events','records','notifications') AND table_type='BASE TABLE'));"))
-    assert inventory == {'migrations': 47, 'tables': 33}
+    assert inventory == {'migrations': 48, 'tables': 33}
     print(json.dumps({'suite': 'foundation', 'passed': True, 'idempotent_actor': True,
                       'runtime_dml_rollback': True, 'ddl_denied': True, 'actor_collision_refused': True,
                       'unused_actor_rollback': True, 'remote_docker_rejected': True,

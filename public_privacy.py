@@ -205,7 +205,7 @@ def main():
         assert all(set(value)=={'component','operation','method','status','durationSeconds'} for value in edge_events)
         report['edge_signals']={'events':len(edge_events),'fields':['component','operation','method','status','durationSeconds'],'upstream_error_status':upstream_error_status,'safe_upstream_error_observed':True,'arbitrary_method_categorized':True}
         assert snapshot(lab)==baseline
-        assert lab.scalar('SELECT count(*) FROM public.databasechangelog;')=='47'
+        assert lab.scalar('SELECT count(*) FROM public.databasechangelog;')=='48'
         report['read_only_snapshots']=True
     report['finished_at']=datetime.now(timezone.utc).isoformat()
     (ROOT/'artifacts/public-privacy-report.json').write_text(json.dumps(report,indent=2)+'\n')

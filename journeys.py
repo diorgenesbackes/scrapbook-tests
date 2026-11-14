@@ -181,7 +181,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('stage', choices=['backend', 'browser', 'load', 'models', 'all'])
     stage = parser.parse_args().stage
-    report = {'started_at': datetime.now().astimezone().isoformat(), 'target': 'disposable local container', 'migrations': 47}
+    report = {'started_at': datetime.now().astimezone().isoformat(), 'target': 'disposable local container', 'migrations': 48}
     Path(ROOT / 'artifacts').mkdir(exist_ok=True)
     with EventLab() as lab:
         if stage in ['backend', 'models', 'all']:

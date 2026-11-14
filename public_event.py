@@ -134,7 +134,7 @@ def contracts(lab, events):
         assert valid_public_projection(request(lab.ui_url, path=public_path(event))[2], event)
     assert snapshot(lab) == baseline
     checks.append('all_application_tables_unchanged_by_reads')
-    assert lab.scalar('SELECT count(*) FROM public.databasechangelog;') == '47'
+    assert lab.scalar('SELECT count(*) FROM public.databasechangelog;') == '48'
     assert raw(lab.ui_url, '/e/' + events[0]['code'])[0] == 200
     assert raw(lab.ui_url, public_path(events[0]))[1]['Content-Type'].startswith('application/json')
     assert raw(lab.ui_url, '/assets/pp-missing.js')[0] == 404
