@@ -147,3 +147,11 @@ Executar manualmente `python3 remembered_identification.py`. O runner constrói 
 A configuração remembered_identification.config.ts combina 16 cenários novos (oito por motor) com 14 regressões de S17 e uma de performance 4G, mais 14 jornadas separadas de gestão/health. Valida recarga/nova aba, contexto e origem diferentes, A→B→A, aviso atual pendente/diferente, dados removidos, getter/quota recusados, rascunho não persistido, conteúdo mínimo e ausência de nome no tráfego/DOM público/QR/PNG. A leitura do QR usa jsQR independente, já existente.
 
 Artefatos em artifacts/remembered-identification*, ignorados pelo Git. Relatório preserva falhas parciais; não há retry automático. Não equivale a aparelho/leitor real, sincronização entre dispositivos ou validação do futuro backend de envios. A suíte antiga de S17 foi atualizada para o comportamento de recarga introduzido nesta história; evidências anteriores permanecem nas revisões históricas.
+
+## Alteração da identificação — IC-STORY-003
+
+Executar manualmente `python3 edit_identification.py`. Constrói tags próprias e usa Compose/portas/volumes descartáveis, mantendo a aplicação persistente parada. Banco real/48 migrations; snapshot das tabelas de negócio antes/depois das ações de identificação, sem escrita. Não repete carga da API ou rollback de schema inalterado.
+
+São seis jornadas novas por motor: A aceito→B→novo aceite→reload; A→B→A por teclado com acentos/320px/texto 200%; cancelamento para revisão ou confirmação e saída após erro; falha de substituição com retry/memória explícitos; isolamento A/B com resposta tardia; privacidade do nome anterior/novo e QR/PNG. Inclui 30 regressões IC-001/002, uma performance com cinco amostras 4G e 14 jornadas de gestão/health: 57 cenários distintos.
+
+Artefatos ignorados em artifacts/edit-identification*, com seleção revisada na documentação. Unitário em scrapbook-ui conserva um snapshot já consumido enquanto confirma outro, sem alegar endpoint/envio real. Eventos input/change, paste e composition são cobertos; autofill silencioso de extensão externa não é simulado. Leitor de tela e aparelhos reais não executados; pendências anteriores preservadas. Sem retry automático de asserção ou escrita.
