@@ -1,0 +1,15 @@
+.DS_Store
+._*
+.env
+.env.*
+!.env.example
+.idea/
+.vscode/
+*.log
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+.venv/
+__pycache__/
