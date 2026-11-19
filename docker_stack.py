@@ -1,8 +1,10 @@
 import argparse
+from http.client import RemoteDisconnected
 import json
 import os
 from pathlib import Path
 import secrets
+import shutil
 import socket
 import subprocess
 import sys
@@ -78,7 +80,7 @@ class DockerStackTests(unittest.TestCase):
                     self.assertEqual({"status": expected_body}, json.loads(body))
                     self.assertEqual("no-store", headers.get("Cache-Control"))
                     return
-            except (URLError, TimeoutError) as error:
+            except (URLError, TimeoutError, RemoteDisconnected, ConnectionResetError) as error:
                 last = type(error).__name__
             time.sleep(0.4)
         self.fail(f"{path} não alcançou {expected_status}. Observado {last!r}")
@@ -86,10 +88,66 @@ class DockerStackTests(unittest.TestCase):
     def app_sql(self, sql):
         result = self.compose_command(
             "exec", "-T", "-e", "PGPASSWORD", "postgres", "psql", "-qAtX",
-            "-v", "ON_ERROR_STOP=1", "-h", "127.0.0.1", "-U", "scrapbook_app", "-d", "scrapbook",
+            "-v", "ON_ERROR_STOP=1", "-h", "postgres", "-U", "scrapbook_app", "-d", "scrapbook",
             env={"PGPASSWORD": self.password}, stdin=sql,
         )
         return result.stdout.strip()
+
+    def prepare_database(self, *options, **environment):
+        return subprocess.run(
+            [sys.executable, "scripts/prepare_database.py", "--env-file", str(self.env_file),
+             "--project-name", self.project, *options],
+            cwd=INFRASTRUCTURE, env=self.environment | environment, text=True, capture_output=True, timeout=180,
+        )
+
+    def logs(self, component):
+        return self.compose_command("logs", "--no-color", "--no-log-prefix", component).stdout
+
+    def verify_reprepare(self):
+        with tempfile.TemporaryDirectory(prefix="scrapbook-f01-migration-fixture-") as temporary:
+            fixture = Path(temporary)
+            changed_password = secrets.token_hex(32)
+            missing = self.prepare_database("--liquibase-dir", temporary, SCRAPBOOK_DB_APP_PASSWORD=changed_password)
+            self.assertNotEqual(0, missing.returncode)
+            self.assertIn("Arquivos do Liquibase", missing.stderr)
+
+            (fixture / "config").mkdir()
+            shutil.copyfile(INFRASTRUCTURE.parent / "scrapbook-liquibase" / "config/bootstrap.sql",
+                            fixture / "config/bootstrap.sql")
+            (fixture / "scripts").mkdir()
+            (fixture / "scripts/migrate.py").write_text(
+                "import sys\nprint('fixture-private-migration-detail', file=sys.stderr)\nsys.exit(12)\n",
+                encoding="utf-8",
+            )
+            wrong = self.prepare_database("--liquibase-dir", temporary, SCRAPBOOK_DB_APP_PASSWORD=changed_password)
+            self.assertNotEqual(0, wrong.returncode)
+            self.assertIn("Credencial existente de scrapbook_app", wrong.stderr)
+            self.assertNotIn(changed_password, wrong.stderr)
+
+            failed = self.prepare_database("--liquibase-dir", temporary)
+            self.assertNotEqual(0, failed.returncode)
+            self.assertIn("Migração Liquibase: comando recusado (código 12)", failed.stderr)
+            self.assertNotIn("fixture-private-migration-detail", failed.stderr)
+
+        self.assertEqual("1", self.app_sql("SELECT 1;"))
+        self.compose_command("restart", "service")
+        self.wait_for_health("/health/ready", 200, "up", port=self.api_port)
+        print("Reteste do preparo preservou credenciais e prontidão em três falhas distintas", flush=True)
+
+    def verify_proxy_logs(self, correlation):
+        query = "fixture-private-proxy-query"
+        self.assertEqual(200, self.get("/?probe=" + query)[0])
+        self.compose_command("stop", "service")
+        self.assertEqual(502, self.get("/health?probe=" + query)[0])
+        self.wait_for_health("/ui-health", 200, "up")
+        logs = self.logs("ui")
+        self.assertNotIn(query, logs)
+        entries = [json.loads(line) for line in logs.splitlines() if line.startswith("{")]
+        self.assertTrue(any(entry.get("route") == "/health" and entry.get("statusCode") == 502 for entry in entries))
+        self.assertTrue(any(entry.get("correlationId") == correlation for entry in entries))
+        self.compose_command("up", "-d", "--wait", "service")
+        self.wait_for_health("/health/ready", 200, "up", port=self.api_port)
+        print("Logs de proxy conservaram a rota nominal e omitiram a query em sucesso e falha", flush=True)
 
     def test_local_foundation(self):
         self.compose_command("up", "-d", "--build", "--wait", "postgres", "service", "ui")
@@ -102,10 +160,7 @@ class DockerStackTests(unittest.TestCase):
         )
         print("CA1/CA2 vitalidade estável e prontidão 503 antes do Liquibase", flush=True)
 
-        prepared = subprocess.run(
-            [sys.executable, "scripts/prepare_database.py", "--env-file", str(self.env_file), "--project-name", self.project],
-            cwd=INFRASTRUCTURE, env=self.environment, text=True, capture_output=True, timeout=180,
-        )
+        prepared = self.prepare_database()
         self.assertEqual(0, prepared.returncode, prepared.stderr)
         self.wait_for_health("/health/ready", 200, "up")
         self.wait_for_health("/health/ready", 200, "up", port=self.api_port)
@@ -128,7 +183,17 @@ class DockerStackTests(unittest.TestCase):
         correlation = "e886be89-6358-48db-a1dd-665b5152d4ee"
         _, headers, _ = self.get("/health", headers={"X-Correlation-Id": correlation})
         self.assertEqual(correlation, headers.get("X-Correlation-Id"))
+        api_entries = [json.loads(line) for line in self.logs("service").splitlines() if line.startswith("{")]
+        summary = next(entry for entry in api_entries if entry.get("correlationId") == correlation)
+        self.assertEqual(
+            (1000, "http.request.completed", "GET", "/health", 200, "success", "Development"),
+            tuple(summary[key] for key in ("eventId", "eventName", "httpMethod", "route", "statusCode", "outcome", "environment")),
+        )
+        self.assertTrue(all(summary[key] for key in ("timestamp", "serviceVersion", "requestId", "traceId")))
         print("CA1 API e UI em loopback, proxy, cabeçalhos e processos sem root", flush=True)
+
+        self.verify_proxy_logs(correlation)
+        self.verify_reprepare()
 
         account_id = self.app_sql("INSERT INTO scrapbook.accounts (state) VALUES ('anonymized') RETURNING id;")
         self.assertTrue(account_id.isdecimal())
@@ -136,6 +201,10 @@ class DockerStackTests(unittest.TestCase):
         self.compose_command("stop", "postgres")
         self.wait_for_health("/health", 200, "up")
         self.wait_for_health("/health/ready", 503, "down")
+        logs = self.logs("service")
+        self.assertIn('"readinessReason":"database_unavailable"', logs)
+        self.assertNotIn("NpgsqlException", logs)
+        self.assertNotIn("InvalidOperationException", logs)
         self.compose_command("up", "-d", "--wait", "--force-recreate", "postgres", "service", "ui")
         self.wait_for_health("/health/ready", 200, "up")
         self.assertEqual("anonymized", self.app_sql(f"SELECT state FROM scrapbook.accounts WHERE id = {account_id};"))
@@ -145,6 +214,7 @@ class DockerStackTests(unittest.TestCase):
         for overrides, message in (
             (["-e", "ASPNETCORE_ENVIRONMENT=Production", "-e", "DevelopmentIdentity__Enabled=true"],
              "CONFIGURATION_INVALID DevelopmentIdentity:Enabled"),
+            (["-e", "DevelopmentIdentity__Enabled=true"], "CONFIGURATION_INVALID DevelopmentIdentity:AllowContainerBinding"),
             (["-e", "ConnectionStrings__ScrapBook=Invalid=fixture-secret"], "CONFIGURATION_INVALID ConnectionStrings:ScrapBook"),
         ):
             failed = self.compose_command("run", "--rm", "--no-deps", *overrides, "service", check=False)
@@ -153,10 +223,20 @@ class DockerStackTests(unittest.TestCase):
             self.assertNotIn("fixture-secret", failed.stdout + failed.stderr)
         print("CA3 inicialização incompatível recusada com diagnóstico sanitizado", flush=True)
 
+        self.compose_command(
+            "up", "-d", "--wait", "service",
+            env={"SCRAPBOOK_DEV_IDENTITY_ENABLED": "true", "SCRAPBOOK_DEV_ALLOW_CONTAINER_BINDING": "true",
+                 "SCRAPBOOK_DEV_ACCOUNT_ID": account_id, "SCRAPBOOK_DEV_IDENTITY_TOKEN": secrets.token_hex(32)},
+        )
+        self.wait_for_health("/health/ready", 200, "up", port=self.api_port)
+
         if self.run_browser:
+            browser_environment = self.environment | {"PLAYWRIGHT_BASE_URL": f"http://127.0.0.1:{self.ui_port}"}
+            if browser_environment.pop("NO_COLOR", None):
+                browser_environment.update(FORCE_COLOR="0", DEBUG_COLORS="0")
             subprocess.run(
                 ["npm", "run", "test:foundation"], cwd=ROOT,
-                env=os.environ | {"PLAYWRIGHT_BASE_URL": f"http://127.0.0.1:{self.ui_port}"},
+                env=browser_environment,
                 check=True, timeout=180,
             )
 
