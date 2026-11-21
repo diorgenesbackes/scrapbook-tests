@@ -22,7 +22,13 @@ digest = "sha256:" + "b" * 64
 account = "123456789012"
 base = "arn:aws:ecs:us-east-1:" + account + ":task-definition/"
 definition = base + component + ":2"
-pending_name = "/scrapbook/hlg/liquibase/pending"
+branch = env["GITHUB_REF_NAME"]
+target = "production" if branch == "main" else "hlg"
+production = target == "production"
+source_branch = "hlg" if case == "recover-other-environment" else branch
+source_target = "hlg" if case in ("recover-other-environment", "recover-other-target") else target
+pending_name = f"/scrapbook/{target}/liquibase/pending"
+active_name = f"/scrapbook/{target}/liquibase/active"
 pending_path = Path("pending.json")
 calls_path = Path("calls.jsonl")
 previous = calls_path.read_text().splitlines() if calls_path.exists() else []
@@ -40,17 +46,19 @@ if tool == "gh":
         repository = env["GITHUB_REPOSITORY"] if case != "recover-wrong-evidence" else "another/repository"
         image = f"{account}.dkr.ecr.us-east-1.amazonaws.com/scrapbook-{component}@{digest}"
         (destination / "release-evidence.json").write_text(json.dumps({
-            "sha": "f" * 40, "version": "v0.9.1", "result": "success", "environment": "hlg", "branch": "hlg",
+            "sha": "f" * 40, "version": "v0.9.1", "result": "success", "environment": source_target, "branch": source_branch,
             "repository": repository, "runId": "91", "attempt": "2",
             "databaseGeneration": "unexpected" if case == "recover-wrong-generation" else env["DATABASE_GENERATION"],
             "activeImage": image, "image": image, "archiveSha256": env.get("SITE_SHA256"),
             "uiOrigin": env["UI_ORIGIN"], "apiOrigin": env["VITE_API_BASE_URL"],
         }))
     elif recovering and "/attempts/" in args[1]:
-        output({"head_sha": "f" * 40, "head_branch": "hlg", "event": "push", "id": 91, "run_attempt": 2,
-                "head_repository": {"full_name": env["GITHUB_REPOSITORY"]}, "path": ".github/workflows/publish-hlg.yml",
+        output({"head_sha": "f" * 40, "head_branch": source_branch, "event": "push", "id": 91, "run_attempt": 2,
+                "head_repository": {"full_name": env["GITHUB_REPOSITORY"]},
+                "path": ".github/workflows/publish.yml" if production and case != "recover-legacy-path" else ".github/workflows/publish-hlg.yml",
                 "conclusion": "success" if case != "recover-failed-source" else "failure"})
     else:
+        assert args[1] == f'repos/{env["GITHUB_REPOSITORY"]}/git/ref/heads/{branch}', args
         output("a" * 40 if case != "stale" else "f" * 40)
 elif tool == "docker":
     if args[0] == "login":
@@ -73,9 +81,10 @@ elif tool == "aws":
     group, action = args[:2]
     key = (group, action)
     if key == ("ssm", "get-parameter"):
+        assert args[args.index("--name") + 1] == active_name
         if case == "no-database":
             refuse()
-        marker = {"environment": "hlg", "result": "success", "version": "v1.3.7", "sha": "c" * 40,
+        marker = {"environment": "hlg" if case == "other-environment-marker" else target, "result": "success", "version": "v1.3.7", "sha": "c" * 40,
                   "generation": "f01-story-001-base" if case != "wrong-generation" else "unexpected"}
         if case == "missing-marker-provenance":
             del marker["version"]
@@ -84,10 +93,11 @@ elif tool == "aws":
             marker.update(version="v01.1.0", sha="c" * 39)
         output(marker)
     elif key == ("ssm", "get-parameters"):
-        if case in ("pending-running", "pending-stopped", "pending-no-arn"):
+        assert args[args.index("--names") + 1] == pending_name
+        if case in ("pending-running", "pending-stopped", "pending-no-arn", "pending-other-environment"):
             pending = {"cluster": env["ECS_CLUSTER"], "taskDefinition": definition,
                        "image": "registry/liquibase@" + digest, "version": "v1.0.0",
-                       "environment": "hlg", "result": "incomplete", "sha": "f" * 40,
+                       "environment": "hlg" if case == "pending-other-environment" else target, "result": "incomplete", "sha": "f" * 40,
                        "generation": "f01-story-001-base"}
             if case != "pending-no-arn":
                 pending["task"] = "previous-task"
@@ -98,10 +108,11 @@ elif tool == "aws":
         })
     elif key == ("ecs", "describe-services"):
         activated = json.dumps(["aws", "ecs", "update-service"]) in previous
-        desired = int(activated or recovering)
+        desired = (2 if production else 1) if activated or recovering else int(case == "underprovisioned")
         current = ":9" if case == "recover-wrong-active-task" else ":1"
         output({"services": [{"status": "ACTIVE", "deploymentController": {"type": "ECS"},
-                "taskDefinition": definition if activated else base + component + current, "runningCount": int(activated),
+                "taskDefinition": definition if activated else base + component + current, "runningCount": desired if activated else 0,
+                "availabilityZoneRebalancing": "DISABLED" if case == "zone-rebalancing-off" else "ENABLED",
                 "desiredCount": desired, "deployments": [{}] if activated else [],
                 "loadBalancers": [{"targetGroupArn": "target-arn", "containerName": "api", "containerPort": 8080}]}]})
     elif key == ("elbv2", "describe-target-groups"):
@@ -109,10 +120,17 @@ elif tool == "aws":
                  "HealthCheckPort": "traffic-port", "Matcher": {"HttpCode": "200"}}]})
     elif key == ("ecs", "describe-task-definition"):
         environment = [{"name": name, "value": value} for name, value in [
-            ("ASPNETCORE_ENVIRONMENT", "Homologation"), ("Hosting__PublicUiOrigin", env["UI_ORIGIN"]),
+            ("ASPNETCORE_ENVIRONMENT", "Production" if production else "Homologation"),
+            ("DevelopmentIdentity__Enabled", "true" if case == "unsafe-local-identity" else "false"),
+            ("Hosting__PublicUiOrigin", env["UI_ORIGIN"]),
             ("Database__RequireTls", "true")]] if component == "api" else [
-            {"name": "LIQUIBASE_COMMAND_URL", "value": "jdbc:fixture"}]
+            {"name": "LIQUIBASE_COMMAND_URL",
+             "value": env.get("MIGRATION_DATABASE_URL", "jdbc:fixture") if case != "wrong-migration-url" else "jdbc:other"}]
         secret_name = "ConnectionStrings__ScrapBook" if component == "api" else "LIQUIBASE_COMMAND_PASSWORD"
+        secret_arn = env.get("DATABASE_SECRET_ARN" if component == "api" else "MIGRATION_PASSWORD_SECRET_ARN",
+                             "arn:aws:secretsmanager:us-east-1:fixture")
+        if case == "wrong-secret":
+            secret_arn = f"arn:aws:secretsmanager:us-east-1:{account}:secret:other"
         if recovering and component == "liquibase":
             endpoint = "fixture.rds.amazonaws.com" if case != "recover-wrong-task-url" else "other.rds.amazonaws.com"
             environment = [{"name": "LIQUIBASE_COMMAND_URL", "value": f"jdbc:postgresql://{endpoint}:5432/scrapbook_recovery?sslmode=verify-full&sslrootcert=/opt/scrapbook/certs/rds-us-east-1.pem"}]
@@ -121,8 +139,9 @@ elif tool == "aws":
                  "taskDefinitionArn": definition,
                  "requiresCompatibilities": ["FARGATE"], "containerDefinitions": [{"name": component,
                  "essential": True, "environment": environment, "image": image,
+                 "command": ["fixture-override"] if case == "unsafe-command" else [],
                  "logConfiguration": {"logDriver": "awslogs"},
-                 "secrets": [{"name": secret_name, "valueFrom": "arn:aws:secretsmanager:us-east-1:fixture"}]}]}})
+                 "secrets": [{"name": secret_name, "valueFrom": secret_arn}]}]}})
     elif key == ("ecr", "describe-repositories"):
         output("MUTABLE" if case == "mutable" else "IMMUTABLE")
     elif key == ("ecr", "get-login-password"):
@@ -139,9 +158,9 @@ elif tool == "aws":
         if recovering:
             assert "--desired-count" not in args
         else:
-            assert args[args.index("--desired-count") + 1] == "1"
+            assert args[args.index("--desired-count") + 1] == ("2" if production else "1")
     elif key == ("ecs", "list-tasks"):
-        output({"taskArns": ["task-api"]})
+        output({"taskArns": ["task-api", "task-api-secondary"] if production else ["task-api"]})
     elif key == ("ecs", "run-task"):
         assert args[args.index("--task-definition") + 1] == definition
         if recovering:
@@ -153,16 +172,23 @@ elif tool == "aws":
             assert pending["clientToken"] == args[args.index("--started-by") + 1]
         output({"failures": [], "tasks": [{"taskArn": "task-migration"}]})
     elif key == ("ecs", "describe-tasks"):
-        task = args[args.index("--tasks") + 1]
+        tasks = args[args.index("--tasks") + 1:args.index("--output")]
         running = component == "api" or case in ("pending-running", "migration-timeout-running")
-        output({"failures": [], "tasks": [{"taskArn": task, "taskDefinitionArn": definition,
-                 "lastStatus": "RUNNING" if running else "STOPPED",
-                 "attachments": [{"details": [{"name": "privateIPv4Address", "value": "10.0.0.42"}]}],
-                 "containers": [{"name": component, "imageDigest": digest if case != "different-digest" else "sha256:changed",
-                 "exitCode": 1 if case == "migration-failure" else 0}]}]})
+        output({"failures": [], "tasks": [
+            {"taskArn": task, "taskDefinitionArn": definition,
+             "availabilityZone": "us-east-1b" if index and case != "same-zone" else "us-east-1a",
+             "lastStatus": "RUNNING" if running else "STOPPED",
+             "attachments": [{"details": [{"name": "privateIPv4Address", "value": f"10.0.0.{42 + index}"}]}],
+             "containers": [{"name": component, "imageDigest": digest if case != "different-digest" else "sha256:changed",
+                             "exitCode": 1 if case == "migration-failure" else 0}]}
+            for index, task in enumerate(tasks)
+        ]})
     elif key == ("elbv2", "describe-target-health"):
+        addresses = ["10.0.0.77" if case == "other-healthy-target" else "10.0.0.42"]
+        if production:
+            addresses.append("10.0.0.43")
         output({"TargetHealthDescriptions": [{"TargetHealth": {"State": "healthy"},
-                 "Target": {"Id": "10.0.0.77" if case == "other-healthy-target" else "10.0.0.42", "Port": 8080}}]})
+                 "Target": {"Id": address, "Port": 8080}} for address in addresses]})
     elif key == ("ssm", "put-parameter"):
         name = args[args.index("--name") + 1]
         marker = json.loads(args[args.index("--value") + 1])
@@ -171,6 +197,8 @@ elif tool == "aws":
                 refuse()
             pending_path.write_text(json.dumps(marker))
         else:
+            assert name == active_name
+            assert marker["environment"] == target
             if case == "migration-marker-write-failure":
                 refuse()
             assert marker["result"] == "success" and marker["version"] == "v1.0.0"
@@ -202,7 +230,7 @@ elif tool == "aws":
 scripts = {"api": "publish_ecs.sh", "ui": "publish_amplify.sh", "liquibase": "publish_migration.sh"}
 recovery_scripts = {"api": "recover_ecs.sh", "ui": "recover_amplify.sh", "liquibase": "recover_migration.sh"}
 
-def verify(roots, component, case, success, forbidden=None):
+def verify(roots, component, case, success, forbidden=None, *, branch="hlg"):
     recovering = case.startswith("recover-")
     with TemporaryDirectory(prefix="scrapbook-aws-fixture-") as directory:
         work = Path(directory)
@@ -220,7 +248,7 @@ def verify(roots, component, case, success, forbidden=None):
         env = local_env | {
             "PATH": f"{work / 'bin'}:{os.environ['PATH']}",
             "AWS_ACCOUNT_ID": "123456789012", "ECR_REPOSITORY": f"scrapbook-{component}",
-            "GITHUB_SHA": "a" * 40, "GITHUB_REPOSITORY": f"scrapbook/{component}", "GITHUB_REF_NAME": "hlg",
+            "GITHUB_SHA": "a" * 40, "GITHUB_REPOSITORY": f"scrapbook/{component}", "GITHUB_REF_NAME": branch,
             "GITHUB_RUN_ID": "100", "GITHUB_RUN_ATTEMPT": "1", "RELEASE_VERSION": "v1.0.0",
             "RESERVED_RUN_KEY": "100.1", "GITHUB_OUTPUT": str(work / "github-output"),
             "GH_TOKEN": "local-fixture-token", "COMPONENT": component, "FIXTURE": case,
@@ -230,6 +258,13 @@ def verify(roots, component, case, success, forbidden=None):
             "AMPLIFY_APP_ID": "abc42", "AMPLIFY_BRANCH": "hlg", "UI_ORIGIN": "https://ui.hlg.example.test",
             "VITE_API_BASE_URL": "https://api.hlg.example.test",
         }
+        if branch == "main":
+            prefix = f'arn:aws:secretsmanager:us-east-1:{env["AWS_ACCOUNT_ID"]}:secret:'
+            env.update(AMPLIFY_BRANCH="hlg" if case == "wrong-amplify-branch" else "main",
+                       UI_ORIGIN="https://ui.example.test", VITE_API_BASE_URL="https://api.example.test",
+                       DATABASE_SECRET_ARN=prefix + "production-api",
+                       MIGRATION_PASSWORD_SECRET_ARN=prefix + "production-liquibase",
+                       MIGRATION_DATABASE_URL="jdbc:postgresql://production.rds.amazonaws.com:5432/scrapbook?sslmode=verify-full&sslrootcert=/opt/scrapbook/certs/rds-us-east-1.pem")
         if case == "partial-retry":
             env["GITHUB_RUN_ATTEMPT"] = "2"
         if recovering:
@@ -278,16 +313,20 @@ def verify(roots, component, case, success, forbidden=None):
             assert forbidden not in calls, (case, calls)
         if success:
             evidence = json.loads((work / "release-evidence.json").read_text())
+            assert evidence["branch"] == branch
+            assert evidence["environment"] == ("production" if branch == "main" else "hlg")
+            if component == "api" and branch == "main":
+                assert evidence["runningTasks"] == "2" and evidence["availabilityZones"] == "us-east-1a,us-east-1b"
             assert ("activeImage" if component == "api" else "generation" if component == "liquibase"
                     else "archiveSha256") in evidence
         if component == "liquibase" and not recovering:
             active = work / "active.json"
             pending = work / "pending.json"
             assert active.exists() == success
-            assert pending.exists() == (not success and case != "concurrent-migration")
+            assert pending.exists() == (not success and case not in ("concurrent-migration", "wrong-secret", "wrong-migration-url"))
             if case == "pending-stopped":
                 assert evidence["reconciledTask"] == "previous-task"
-        print("OK", component, case)
+        print("OK", branch, component, case)
 
 
 def main():
@@ -338,6 +377,32 @@ def main():
     verify(roots, "liquibase", "recover-shared-database", False, "run-task")
     verify(roots, "liquibase", "recover-wrong-task-url", False, "run-task")
     print("13 cenários de recuperação simulada aprovados.")
+    production_cases = (
+        ("api", "success", True, None),
+        ("api", "other-environment-marker", False, "update-service"),
+        ("api", "underprovisioned", False, "update-service"),
+        ("api", "zone-rebalancing-off", False, "update-service"),
+        ("api", "same-zone", False, None),
+        ("api", "unsafe-local-identity", False, "update-service"),
+        ("api", "unsafe-command", False, "update-service"),
+        ("api", "wrong-secret", False, "update-service"),
+        ("api", "recover-success", True, "docker"),
+        ("api", "recover-other-environment", False, "update-service"),
+        ("api", "recover-other-target", False, "update-service"),
+        ("api", "recover-legacy-path", False, "update-service"),
+        ("liquibase", "success", True, None),
+        ("liquibase", "wrong-secret", False, "run-task"),
+        ("liquibase", "wrong-migration-url", False, "run-task"),
+        ("liquibase", "pending-other-environment", False, "run-task"),
+        ("ui", "success", True, None),
+        ("ui", "wrong-amplify-branch", False, "create-deployment"),
+        ("ui", "recover-success", True, "docker"),
+        ("ui", "recover-other-target", False, "create-deployment"),
+    )
+    for component, case, success, forbidden in production_cases:
+        verify(roots, component, case, success, forbidden, branch="main")
+    verify(roots, "api", "no-deploy-branch", False, "aws", branch="dev")
+    print(f"{len(production_cases)} cenários de produção simulada e bloqueio de publicação de dev aprovados.")
 
 
 if __name__ == "__main__":
