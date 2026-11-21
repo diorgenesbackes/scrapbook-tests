@@ -23,9 +23,12 @@ class EventStackTests(unittest.TestCase):
         self.stack.setUp()
         self.addCleanup(self.stack.doCleanups)
         self.origin = f"http://127.0.0.1:{self.stack.ui_port}"
-        self.second_origin = f"http://127.0.0.1:{available_ports()[0]}"
+        second_port, outsider_port, _ = available_ports()
+        self.second_origin = f"http://127.0.0.1:{second_port}"
+        self.outsider_origin = f"http://127.0.0.1:{outsider_port}"
         self.authorization = "Development " + secrets.token_hex(32)
         self.second_authorization = "Development " + secrets.token_hex(32)
+        self.outsider_authorization = "Development " + secrets.token_hex(32)
 
     def prepare(self):
         self.stack.compose_command("up", "-d", "--wait", "postgres")
@@ -34,20 +37,25 @@ class EventStackTests(unittest.TestCase):
         accounts = self.stack.app_sql("""
             INSERT INTO scrapbook.accounts (state, subject, name, email, normalized_email, email_verified)
             VALUES ('active', 'fixture-first', 'Responsável sintético A', 'owner-a@example.invalid', 'owner-a@example.invalid', TRUE),
-                   ('active', 'fixture-second', 'Responsável sintético B', 'owner-b@example.invalid', 'owner-b@example.invalid', TRUE)
+                   ('active', 'fixture-second', 'Responsável sintético B', 'owner-b@example.invalid', 'owner-b@example.invalid', TRUE),
+                   ('active', 'fixture-outsider', 'Conta sintética sem vínculo', 'outsider@example.invalid', 'outsider@example.invalid', TRUE)
             RETURNING id;
         """).splitlines()
-        self.assertTrue(len(accounts) == 2 and all(account.isdecimal() for account in accounts))
-        self.owner, self.other = accounts
+        self.assertTrue(len(accounts) == 3 and all(account.isdecimal() for account in accounts))
+        self.owner, self.other, self.outsider = accounts
         self.stack.compose_command("up", "-d", "--build", "--wait", "service", "ui",
                                    env=self.identity(self.owner, self.authorization))
-        name = self.stack.project + "-other"
-        port = self.second_origin.rpartition(":")[2]
+        self.start_identity("other", self.second_origin, self.other, self.second_authorization)
+        self.start_identity("outsider", self.outsider_origin, self.outsider, self.outsider_authorization)
+        self.stack.wait_for_health("/health/ready", 200, "up")
+
+    def start_identity(self, suffix, origin, account, authorization):
+        name = self.stack.project + "-" + suffix
+        port = origin.rpartition(":")[2]
         self.stack.compose_command("run", "-d", "--no-deps", "--name", name, "-p", f"127.0.0.1:{port}:8080",
-                                   "service", env=self.identity(self.other, self.second_authorization))
+                                   "service", env=self.identity(account, authorization))
         self.addCleanup(self.remove_other, name)
         self.stack.wait_for_health("/health/ready", 200, "up", port=int(port))
-        self.stack.wait_for_health("/health/ready", 200, "up")
 
     @staticmethod
     def identity(account, authorization):
@@ -62,9 +70,14 @@ class EventStackTests(unittest.TestCase):
         result = subprocess.run(["docker", "rm", "-f", name], capture_output=True, check=False, timeout=30)
         self.assertEqual(result.returncode, 0)
 
-    def request(self, path=EVENTS, *, draft=None, raw=None, key=None, other=False, anonymous=False, headers=None, method=None):
-        origin = self.second_origin if other else self.origin
-        authorization = self.second_authorization if other else self.authorization
+    def request(self, path=EVENTS, *, draft=None, raw=None, key=None, other=False, outsider=False,
+                anonymous=False, headers=None, method=None):
+        if outsider:
+            origin, authorization = self.outsider_origin, self.outsider_authorization
+        elif other:
+            origin, authorization = self.second_origin, self.second_authorization
+        else:
+            origin, authorization = self.origin, self.authorization
         values = {"Accept": "application/json"}
         if not anonymous:
             values["Authorization"] = authorization
@@ -217,27 +230,132 @@ class EventStackTests(unittest.TestCase):
         self.assertEqual((409, "EVENT_OPENING_LOCKED"), self.problem(path, draft=after, method="PUT"))
         self.assertEqual("1", self.admin_sql(f"SELECT count(*) FROM scrapbook.audit_entries WHERE audit_entries_events_id = {expired_id};"))
 
-    def run_browser(self):
+    def verify_details(self):
+        welcome = "Cheguem com alegria! 🎉"
+        key = str(uuid4())
+        status, _, event = self.request(draft=DRAFT | {"welcomeMessage": "  " + welcome + "  "}, key=key)
+        self.assertEqual((201, welcome, False), (status, event["welcomeMessage"], event["usesDefaultWelcomeMessage"]))
+        self.assertEqual(200, self.request(draft=DRAFT | {"welcomeMessage": welcome}, key=key)[0])
+        self.assertEqual((409, "IDEMPOTENCY_KEY_REUSED"), self.problem(EVENTS, draft=DRAFT, key=key))
+        event_id = event["id"]
+        self.assertTrue(event_id.isdecimal())
+        path = f"{EVENTS}/{event_id}/details"
+        public_code = self.stack.app_sql(f"SELECT code FROM scrapbook.events WHERE id = {event_id};")
+        self.assertRegex(public_code, "^[a-zA-Z0-9_-]{43}$")
+        self.stack.app_sql(f"""
+            INSERT INTO scrapbook.event_members (event_members_events_id, event_members_accounts_id, slot, joined_at)
+            VALUES ({event_id}, {self.other}, 2, CURRENT_TIMESTAMP);
+        """)
+        draft = {"name": "Festa atualizada", "startsAt": "2032-03-11T01:30:00",
+                 "welcomeMessage": None, "expectedVersion": "0"}
+        self.verify_details_access(path, draft)
+        without_welcome = {name: value for name, value in draft.items() if name != "welcomeMessage"}
+        self.assertEqual((400, "REQUEST_VALIDATION_FAILED"), self.problem(path, draft=without_welcome, method="PUT"))
+        incompatible = draft | {"startsAt": "2033-02-27T16:00:00"}
+        status, _, errors = self.request(path, draft=incompatible, method="PUT")
+        self.assertEqual(400, status)
+        self.assertIn("startsAt", errors["errors"])
+        with ThreadPoolExecutor(2) as executor:
+            responses = list(executor.map(lambda other: self.request(
+                path, method="PUT", draft=draft | {"name": f"Festa sintética {'B' if other else 'A'}"},
+                other=other), [False, True]))
+        self.assertEqual([200, 409], sorted(response[0] for response in responses))
+        self.assertEqual("EVENT_VERSION_CONFLICT", next(result[2]["code"] for result in responses if result[0] == 409))
+        changed = next(result[2] for result in responses if result[0] == 200)
+        self.assertEqual("1", changed["version"])
+        self.assertTrue(changed["usesDefaultWelcomeMessage"])
+        self.assertEqual("2032-03-10T23:30:00", changed["submissionOpensAt"])
+        self.assertEqual("2032-03-12T12:00:00", changed["submissionClosesAt"])
+        self.assertEqual("2032-03-12T13:00:00", changed["completionDeadlineAt"])
+        self.assertEqual(
+            f"{public_code}|{changed['name']}|2032-03-11 01:30:00|2032-03-10 23:30:00|2032-03-12 12:00:00|2032-03-12 13:00:00|1|1|",
+            self.stack.app_sql(f"""
+                SELECT code, name, starts_at, submission_opens_at, submission_closes_at, completion_deadline_at,
+                       version, access_version, welcome_message FROM scrapbook.events WHERE id = {event_id};
+            """))
+        for other in (True, False):
+            status, _, result = self.request(path, method="PUT", other=other, draft=draft | {
+                "name": f"Responsável {'B' if other else 'A'}", "expectedVersion": "1" if other else "2",
+            })
+            self.assertEqual((200, "2" if other else "3"), (status, result["version"]))
+        self.verify_details_freeze()
+        return event_id, self.verify_structural_lock(draft)
+
+    def verify_details_access(self, path, draft):
+        absent = f"{EVENTS}/9223372036854775807/details"
+        denied = {"draft": draft, "method": "PUT", "outsider": True}
+        self.assertEqual(self.problem(absent, **denied), self.problem(path, **denied))
+        status, headers, problem = self.request(path, **denied)
+        self.assertEqual((404, "RESOURCE_NOT_FOUND"), (status, problem["code"]))
+        self.assertIn("no-store", headers["Cache-Control"])
+        self.assertTrue({"code", "title", "status"}.issubset(problem))
+        self.assertFalse({"name", "welcomeMessage", "lockedAt", "openingPolicy", "firstRecordId"} & set(problem))
+        self.assertEqual((401, "IDENTITY_AUTHENTICATION_REQUIRED"),
+                         self.problem(path, draft=draft, method="PUT", anonymous=True))
+        self.assertEqual((403, "REQUEST_ORIGIN_REJECTED"),
+                         self.problem(path, draft=draft, method="PUT", headers={"Origin": "https://other.example.invalid"}))
+
+    def verify_details_freeze(self):
+        event_id = self.immediate_event("2020-02-29T01:30:00")
+        path = f"{EVENTS}/{event_id}/details"
+        draft = {"name": "Evento com prazo anterior", "startsAt": "2032-02-29T01:30:00",
+                 "welcomeMessage": None, "expectedVersion": "0"}
+        status, _, result = self.request(path, draft=draft, method="PUT")
+        self.assertEqual((200, "immediate_once"), (status, result["openingPolicy"]["state"]))
+        self.assertEqual("immediate_once|2020-03-01 12:00:00|1", self.stack.app_sql(f"""
+            SELECT access_state, access_frozen_at, access_version FROM scrapbook.events WHERE id = {event_id};
+        """))
+
+    def verify_structural_lock(self, draft):
+        event_id = self.immediate_event(DRAFT["startsAt"])
+        self.admin_sql(f"""
+            WITH notice AS (
+                INSERT INTO scrapbook.consent_notices (code, body, body_hash, effective_at)
+                VALUES ('fixture-lock', 'Termo sintético', decode(repeat('00', 32), 'hex'), CURRENT_TIMESTAMP)
+                RETURNING id
+            ), record AS (
+                INSERT INTO scrapbook.records (
+                    records_events_id, records_consent_notices_id, category, format, sender_name, message,
+                    expected_file_count, consented_at, submitted_at, received_at, confirmed_at, state
+                )
+                SELECT {event_id}, id, 'testimonial', 'text', 'Convidado sintético', 'Registro de teste', 0,
+                       '2032-02-29 01:30:00', '2032-02-29 01:30:00', '2032-02-29 01:30:00',
+                       '2032-02-29 01:30:00', 'confirmed' FROM notice
+                RETURNING id, confirmed_at
+            )
+            UPDATE scrapbook.events SET locked_at = CURRENT_TIMESTAMP,
+                first_record_id = record.id, first_record_confirmed_at = record.confirmed_at
+            FROM record WHERE scrapbook.events.id = {event_id};
+        """)
+        path = f"{EVENTS}/{event_id}"
+        self.assertEqual((409, "EVENT_LOCKED"), self.problem(path + "/details", draft=draft, method="PUT"))
+        self.assertEqual((404, "RESOURCE_NOT_FOUND"), self.problem(path + "/details", draft=draft, method="PUT", outsider=True))
+        self.assertFalse(self.request(path)[2]["canEditDetails"])
+        self.assertEqual("0", self.stack.app_sql(f"SELECT version FROM scrapbook.events WHERE id = {event_id};"))
+        return event_id
+
+    def run_browser(self, locked_event_id):
         env = self.stack.environment | {"PLAYWRIGHT_BASE_URL": self.origin,
-                                       "SCRAPBOOK_TEST_AUTHORIZATION": self.authorization}
+                                       "SCRAPBOOK_TEST_AUTHORIZATION": self.authorization,
+                                       "SCRAPBOOK_TEST_LOCKED_EVENT_ID": locked_event_id}
         if env.pop("NO_COLOR", None):
             env.update(FORCE_COLOR="0", DEBUG_COLORS="0")
         subprocess.run(["npm", "exec", "--", "playwright", "test", "--config", "playwright.events.config.ts"],
                        cwd=ROOT, env=env, check=True, timeout=180)
 
-    def run_load(self, opening_event_id):
+    def run_load(self, opening_event_id, details_event_id):
         env = self.stack.environment | {
             "SCRAPBOOK_LOAD_ORIGIN": self.origin,
             "SCRAPBOOK_LOAD_AUTHORIZATION": self.authorization,
             "SCRAPBOOK_LOAD_SECOND_ORIGIN": self.second_origin,
             "SCRAPBOOK_LOAD_SECOND_AUTHORIZATION": self.second_authorization,
             "SCRAPBOOK_LOAD_OPENING_EVENT_ID": opening_event_id,
+            "SCRAPBOOK_LOAD_DETAILS_EVENT_ID": details_event_id,
             "K6_NO_USAGE_REPORT": "true",
         }
-        subprocess.run(["k6", "run", "--quiet", "--no-color", "load/events.js"], cwd=ROOT, env=env,
-                       check=True, timeout=75)
-        subprocess.run(["k6", "run", "--quiet", "--no-color", "load/opening.js"], cwd=ROOT, env=env,
-                       check=True, timeout=75)
+        for scenario in ("events", "opening", "details"):
+            subprocess.run(["k6", "run", "--quiet", "--no-color", f"load/{scenario}.js"], cwd=ROOT,
+                           env=env, check=True, timeout=75)
 
     def test_event_journey(self):
         self.prepare()
@@ -247,10 +365,12 @@ class EventStackTests(unittest.TestCase):
         print("Criação concorrente, replay, paginação e isolamento verificados em HTTP e PostgreSQL.", flush=True)
         opening_event = self.verify_opening_policy()
         print("Política verificada com dois vínculos, disputa de versão, auditoria, rollback e trava.", flush=True)
+        details_event, locked_event = self.verify_details()
+        print("Edição verificada com três contas, gravação atômica, código estável, prazos e travas.", flush=True)
         if self.browser:
-            self.run_browser()
+            self.run_browser(locked_event)
         if self.load:
-            self.run_load(opening_event)
+            self.run_load(opening_event, details_event)
 
 
 if __name__ == "__main__":
