@@ -20,4 +20,4 @@ python3 docker_stack.py --browser
 
 ## Criação e listagem de eventos
 
-`python3 -B event_stack.py` prepara PostgreSQL e duas identidades descartáveis, exercita criação concorrente, repetição, detalhe e paginação e verifica isolamento por HTTP. Acrescente `--browser` para executar a jornada no Playwright e `--load` para medir criação e listagem com k6 em loopback.
+`python3 -B event_stack.py` prepara PostgreSQL e duas identidades descartáveis. Exercita criação, repetição, detalhe, paginação, alterações concorrentes da política de abertura, isolamento e reversão em caso de falha da auditoria. Acrescente `--browser` para as jornadas Playwright e `--load` para medir criação, listagem e alterações de política com k6 em loopback.
