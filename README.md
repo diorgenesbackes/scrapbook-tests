@@ -18,6 +18,6 @@ python3 docker_stack.py --browser
 
 `npm run test:foundation` exercita somente navegador em uma stack já preparada. Use `PLAYWRIGHT_BASE_URL` para escolher outra porta de `127.0.0.1`. As emulações de Android e iPhone verificam layout e interação. Dispositivos físicos e leitores de tela exigem evidência manual própria. [Ambiente local](../scrapbook-infrastructure/README.md)
 
-## Criação e listagem de eventos
+## Criação, listagem e edição de eventos
 
-`python3 -B event_stack.py` prepara PostgreSQL e duas identidades descartáveis. Exercita criação, repetição, detalhe, paginação, alterações concorrentes da política de abertura, isolamento e reversão em caso de falha da auditoria. Acrescente `--browser` para as jornadas Playwright e `--load` para medir criação, listagem e alterações de política com k6 em loopback.
+`python3 -B event_stack.py` prepara PostgreSQL e três identidades descartáveis. Exercita criação, repetição, detalhe, paginação, alterações concorrentes da política de abertura, edição concorrente dos detalhes, isolamento, travas, prazos e reversão em caso de falha da auditoria. Acrescente `--browser` para as jornadas Playwright e `--load` para medir criação, listagem, edição de detalhes e alterações de política com k6 em loopback.
