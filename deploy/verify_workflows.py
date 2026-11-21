@@ -16,6 +16,7 @@ tool = Path(sys.argv[0]).name
 args = sys.argv[1:]
 env = os.environ
 case = env["FIXTURE"]
+recovering = case.startswith("recover-")
 component = env["COMPONENT"]
 digest = "sha256:" + "b" * 64
 account = "123456789012"
@@ -33,7 +34,24 @@ def refuse():
     raise SystemExit(61)
 
 if tool == "gh":
-    output("a" * 40 if case != "stale" else "f" * 40)
+    if recovering and args[:2] == ["run", "download"]:
+        destination = Path(args[args.index("--dir") + 1])
+        destination.mkdir(exist_ok=True)
+        repository = env["GITHUB_REPOSITORY"] if case != "recover-wrong-evidence" else "another/repository"
+        image = f"{account}.dkr.ecr.us-east-1.amazonaws.com/scrapbook-{component}@{digest}"
+        (destination / "release-evidence.json").write_text(json.dumps({
+            "sha": "f" * 40, "version": "v0.9.1", "result": "success", "environment": "hlg", "branch": "hlg",
+            "repository": repository, "runId": "91", "attempt": "2",
+            "databaseGeneration": "unexpected" if case == "recover-wrong-generation" else env["DATABASE_GENERATION"],
+            "activeImage": image, "image": image, "archiveSha256": env.get("SITE_SHA256"),
+            "uiOrigin": env["UI_ORIGIN"], "apiOrigin": env["VITE_API_BASE_URL"],
+        }))
+    elif recovering and "/attempts/" in args[1]:
+        output({"head_sha": "f" * 40, "head_branch": "hlg", "event": "push", "id": 91, "run_attempt": 2,
+                "head_repository": {"full_name": env["GITHUB_REPOSITORY"]}, "path": ".github/workflows/publish-hlg.yml",
+                "conclusion": "success" if case != "recover-failed-source" else "failure"})
+    else:
+        output("a" * 40 if case != "stale" else "f" * 40)
 elif tool == "docker":
     if args[0] == "login":
         assert sys.stdin.read() == "mock-token\n"
@@ -48,7 +66,7 @@ elif tool == "curl":
     if "--config" in args:
         assert "https://signed.example.test/private-test-url" in sys.stdin.read()
     else:
-        output({"sha": "a" * 40, "version": "v1.0.0"})
+        output({"sha": env.get("SITE_SHA", "a" * 40), "version": env.get("SITE_VERSION", "v1.0.0")})
 elif tool == "sleep":
     assert args == ["30"]
 elif tool == "aws":
@@ -80,9 +98,11 @@ elif tool == "aws":
         })
     elif key == ("ecs", "describe-services"):
         activated = json.dumps(["aws", "ecs", "update-service"]) in previous
+        desired = int(activated or recovering)
+        current = ":9" if case == "recover-wrong-active-task" else ":1"
         output({"services": [{"status": "ACTIVE", "deploymentController": {"type": "ECS"},
-                "taskDefinition": definition if activated else base + component + ":1", "runningCount": int(activated),
-                "desiredCount": int(activated), "deployments": [{}] if activated else [],
+                "taskDefinition": definition if activated else base + component + current, "runningCount": int(activated),
+                "desiredCount": desired, "deployments": [{}] if activated else [],
                 "loadBalancers": [{"targetGroupArn": "target-arn", "containerName": "api", "containerPort": 8080}]}]})
     elif key == ("elbv2", "describe-target-groups"):
         output({"TargetGroups": [{"TargetType": "ip", "HealthCheckPath": "/health/ready" if case != "wrong-health" else "/health",
@@ -93,9 +113,14 @@ elif tool == "aws":
             ("Database__RequireTls", "true")]] if component == "api" else [
             {"name": "LIQUIBASE_COMMAND_URL", "value": "jdbc:fixture"}]
         secret_name = "ConnectionStrings__ScrapBook" if component == "api" else "LIQUIBASE_COMMAND_PASSWORD"
+        if recovering and component == "liquibase":
+            endpoint = "fixture.rds.amazonaws.com" if case != "recover-wrong-task-url" else "other.rds.amazonaws.com"
+            environment = [{"name": "LIQUIBASE_COMMAND_URL", "value": f"jdbc:postgresql://{endpoint}:5432/scrapbook_recovery?sslmode=verify-full&sslrootcert=/opt/scrapbook/certs/rds-us-east-1.pem"}]
+        image = f"{account}.dkr.ecr.us-east-1.amazonaws.com/scrapbook-{component}@{digest}" if recovering else "base"
         output({"taskDefinition": {"family": component, "status": "ACTIVE", "networkMode": "awsvpc",
+                 "taskDefinitionArn": definition,
                  "requiresCompatibilities": ["FARGATE"], "containerDefinitions": [{"name": component,
-                 "essential": True, "environment": environment, "image": "base",
+                 "essential": True, "environment": environment, "image": image,
                  "logConfiguration": {"logDriver": "awslogs"},
                  "secrets": [{"name": secret_name, "valueFrom": "arn:aws:secretsmanager:us-east-1:fixture"}]}]}})
     elif key == ("ecr", "describe-repositories"):
@@ -103,7 +128,7 @@ elif tool == "aws":
     elif key == ("ecr", "get-login-password"):
         output("mock-token")
     elif key == ("ecr", "describe-images"):
-        output(digest)
+        output(digest if case != "recover-digest-mismatch" else "sha256:" + "f" * 64)
     elif key == ("ecs", "register-task-definition"):
         value = json.load(sys.stdin)
         assert value["containerDefinitions"][0]["image"].endswith("@" + digest)
@@ -111,14 +136,21 @@ elif tool == "aws":
         output(definition)
     elif key == ("ecs", "update-service"):
         assert args[args.index("--task-definition") + 1] == definition
-        assert args[args.index("--desired-count") + 1] == "1"
+        if recovering:
+            assert "--desired-count" not in args
+        else:
+            assert args[args.index("--desired-count") + 1] == "1"
     elif key == ("ecs", "list-tasks"):
         output({"taskArns": ["task-api"]})
     elif key == ("ecs", "run-task"):
         assert args[args.index("--task-definition") + 1] == definition
-        pending = json.loads(pending_path.read_text())
-        assert pending["clientToken"] == args[args.index("--client-token") + 1]
-        assert pending["clientToken"] == args[args.index("--started-by") + 1]
+        if recovering:
+            overrides = json.loads(args[args.index("--overrides") + 1])
+            assert overrides["containerOverrides"][0]["command"] == [env["RECOVERY_OPERATION"]]
+        else:
+            pending = json.loads(pending_path.read_text())
+            assert pending["clientToken"] == args[args.index("--client-token") + 1]
+            assert pending["clientToken"] == args[args.index("--started-by") + 1]
         output({"failures": [], "tasks": [{"taskArn": "task-migration"}]})
     elif key == ("ecs", "describe-tasks"):
         task = args[args.index("--tasks") + 1]
@@ -149,6 +181,14 @@ elif tool == "aws":
         pending_path.unlink()
     elif key == ("amplify", "create-deployment"):
         output({"jobId": "42", "zipUploadUrl": "https://signed.example.test/private-test-url"})
+    elif key == ("amplify", "list-jobs"):
+        output("41" if case != "recover-wrong-amplify-job" else "40")
+    elif key == ("rds", "describe-db-instances"):
+        purpose = "scrapbook-recovery-rehearsal" if case != "recover-shared-database" else "shared"
+        output({"DBInstances": [{"DBInstanceArn": f"arn:aws:rds:us-east-1:{account}:db:fixture-db",
+                "DBInstanceStatus": "available", "Engine": "postgres", "PubliclyAccessible": False,
+                "TagList": [{"Key": "Environment", "Value": "hlg"}, {"Key": "Purpose", "Value": purpose}],
+                "Endpoint": {"Port": 5432, "Address": "fixture.rds.amazonaws.com"}}]})
     elif key == ("amplify", "get-job"):
         output("FAILED" if case == "amplify-failure" else "SUCCEED")
     elif key == ("ecs", "wait") and case.startswith("migration-timeout-"):
@@ -160,8 +200,10 @@ elif tool == "aws":
 '''
 
 scripts = {"api": "publish_ecs.sh", "ui": "publish_amplify.sh", "liquibase": "publish_migration.sh"}
+recovery_scripts = {"api": "recover_ecs.sh", "ui": "recover_amplify.sh", "liquibase": "recover_migration.sh"}
 
 def verify(roots, component, case, success, forbidden=None):
+    recovering = case.startswith("recover-")
     with TemporaryDirectory(prefix="scrapbook-aws-fixture-") as directory:
         work = Path(directory)
         (work / "bin").mkdir()
@@ -190,22 +232,40 @@ def verify(roots, component, case, success, forbidden=None):
         }
         if case == "partial-retry":
             env["GITHUB_RUN_ATTEMPT"] = "2"
+        if recovering:
+            account = env["AWS_ACCOUNT_ID"]
+            base = f"arn:aws:ecs:us-east-1:{account}"
+            env.update(SOURCE_RUN_ID="91", SOURCE_ATTEMPT="2", SOURCE_SHA="f" * 40, SOURCE_VERSION="v0.9.1",
+                       RECOVERY_EVIDENCE=str(work / "source/release-evidence.json"),
+                       EXPECTED_TASK=f"{base}:task-definition/api:1", EXPECTED_CURRENT_JOB="41",
+                       RECOVERY_CLUSTER=f"{base}:cluster/recovery", RECOVERY_TASK_DEFINITION=f"{base}:task-definition/liquibase:2",
+                       RECOVERY_RDS_IDENTIFIER="fixture-db", RECOVERY_SUBNET_IDS=env["MIGRATION_SUBNET_IDS"],
+                       RECOVERY_GROUP_ID="sg-abc", RECOVERY_OPERATION="preview-empty-base")
+            if case == "recover-rollback":
+                env["RECOVERY_OPERATION"] = "rollback-empty-base"
         if component == "ui" and case != "partial-retry":
             build_env = {key: value for key, value in env.items() if not key.startswith(("AWS_", "GH_"))}
             if case == "wrong-archive-revision":
                 build_env["GITHUB_SHA"] = "e" * 40
+            if recovering:
+                build_env.update(GITHUB_SHA=env["SOURCE_SHA"], RELEASE_VERSION=env["SOURCE_VERSION"])
             build = subprocess.run(["bash", ".github/scripts/build_amplify.sh"], cwd=work, env=build_env,
                                    text=True, capture_output=True, timeout=30)
             assert build.returncode == 0, build
             outputs = dict(line.split("=", 1) for line in (work / "github-output").read_text().splitlines())
             env.update(SITE_ARCHIVE=str(work / "site.zip"), SITE_SHA256=outputs["sha256"],
                        SITE_API_ORIGIN=outputs["api_origin"], AWS_SESSION_TOKEN="mock-deployment-token")
-            if case == "tampered-archive":
+            if case in ("tampered-archive", "recover-tampered-archive"):
                 (work / "site.zip").write_bytes(b"arquivo alterado")
             if case == "changed-archive-origin":
                 env["VITE_API_BASE_URL"] = "https://other.hlg.example.test"
         command = f'source .github/scripts/release_support.sh && start_evidence && bash .github/scripts/{scripts[component]}'
-        if component == "ui":
+        if recovering:
+            entry = "source .github/scripts/recovery_support.sh && start_recovery_evidence"
+            if component != "liquibase":
+                entry += ' && fetch_recovery_evidence source'
+            command = f'source .github/scripts/release_support.sh && {entry} && bash .github/scripts/{recovery_scripts[component]}'
+        elif component == "ui":
             command = command.replace("&& bash", "&& bash .github/scripts/verify_amplify_archive.sh && bash", 1)
         result = subprocess.run(["bash", "-c", command], cwd=work, env=env, text=True, capture_output=True, timeout=30)
         assert (result.returncode == 0) == success, (component, case, result)
@@ -220,7 +280,7 @@ def verify(roots, component, case, success, forbidden=None):
             evidence = json.loads((work / "release-evidence.json").read_text())
             assert ("activeImage" if component == "api" else "generation" if component == "liquibase"
                     else "archiveSha256") in evidence
-        if component == "liquibase":
+        if component == "liquibase" and not recovering:
             active = work / "active.json"
             pending = work / "pending.json"
             assert active.exists() == success
@@ -264,6 +324,20 @@ def main():
     verify(roots, "ui", "wrong-archive-revision", False, "create-deployment")
     verify(roots, "ui", "changed-archive-origin", False, "create-deployment")
     print("27 cenários de publicação simulada aprovados.")
+    verify(roots, "api", "recover-success", True, "docker")
+    verify(roots, "api", "recover-failed-source", False, "update-service")
+    verify(roots, "api", "recover-wrong-evidence", False, "update-service")
+    verify(roots, "api", "recover-wrong-generation", False, "update-service")
+    verify(roots, "api", "recover-wrong-active-task", False, "update-service")
+    verify(roots, "api", "recover-digest-mismatch", False, "update-service")
+    verify(roots, "ui", "recover-success", True, "docker")
+    verify(roots, "ui", "recover-tampered-archive", False, "create-deployment")
+    verify(roots, "ui", "recover-wrong-amplify-job", False, "create-deployment")
+    verify(roots, "liquibase", "recover-preview", True, "put-parameter")
+    verify(roots, "liquibase", "recover-rollback", True, "put-parameter")
+    verify(roots, "liquibase", "recover-shared-database", False, "run-task")
+    verify(roots, "liquibase", "recover-wrong-task-url", False, "run-task")
+    print("13 cenários de recuperação simulada aprovados.")
 
 
 if __name__ == "__main__":
