@@ -25,3 +25,5 @@ python3 docker_stack.py --browser
 ## Estado de abertura das lembranças
 
 `python3 -B event_access_stack.py` cria uma cópia descartável do serviço com o relógio de teste montado como arquivo somente leitura. O código e a imagem de publicação usam o relógio do sistema. O teste controla a meia-noite de Brasília sem alterar o relógio do host ou executar um serviço de avisos. Acrescente `--browser` para a jornada Playwright e `--load` para medir consultas abertas e fechadas com k6.
+
+`python3 -B event_public_stack.py --browser --load` valida a página dos convidados com eventos sintéticos e relógio controlado. O comando sem flags roda HTTP e PostgreSQL, incluindo edição da F03, prazos, campos públicos, headers e telemetria. `--browser` acrescenta Playwright na matriz local. `--load` roda k6 com 200 convidados em dois eventos e mede a página em Chromium com cache frio, RTT de 150 ms, 1,6 Mbit/s de download e 750 kbit/s de upload. Instale os navegadores da matriz com `npm exec -- playwright install` depois de `npm ci`. O runner fornece as portas, os códigos sintéticos e o relógio à suíte e remove a stack descartável ao terminar.
