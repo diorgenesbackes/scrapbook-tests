@@ -289,11 +289,14 @@ def verify(roots, component, case, success, forbidden=None, *, branch="hlg"):
             assert build.returncode == 0, build
             outputs = dict(line.split("=", 1) for line in (work / "github-output").read_text().splitlines())
             env.update(SITE_ARCHIVE=str(work / "site.zip"), SITE_SHA256=outputs["sha256"],
-                       SITE_API_ORIGIN=outputs["api_origin"], AWS_SESSION_TOKEN="mock-deployment-token")
+                       SITE_API_ORIGIN=outputs["api_origin"], SITE_UI_ORIGIN=outputs["ui_origin"],
+                       AWS_SESSION_TOKEN="mock-deployment-token")
             if case in ("tampered-archive", "recover-tampered-archive"):
                 (work / "site.zip").write_bytes(b"arquivo alterado")
             if case == "changed-archive-origin":
                 env["VITE_API_BASE_URL"] = "https://other.hlg.example.test"
+            if case == "changed-ui-archive-origin":
+                env["UI_ORIGIN"] = "https://other.hlg.example.test"
         command = f'source .github/scripts/release_support.sh && start_evidence && bash .github/scripts/{scripts[component]}'
         if recovering:
             entry = "source .github/scripts/recovery_support.sh && start_recovery_evidence"
@@ -362,7 +365,8 @@ def main():
     verify(roots, "ui", "tampered-archive", False, "create-deployment")
     verify(roots, "ui", "wrong-archive-revision", False, "create-deployment")
     verify(roots, "ui", "changed-archive-origin", False, "create-deployment")
-    print("27 cenários de publicação simulada aprovados.")
+    verify(roots, "ui", "changed-ui-archive-origin", False, "create-deployment")
+    print("28 cenários de publicação simulada aprovados.")
     verify(roots, "api", "recover-success", True, "docker")
     verify(roots, "api", "recover-failed-source", False, "update-service")
     verify(roots, "api", "recover-wrong-evidence", False, "update-service")
