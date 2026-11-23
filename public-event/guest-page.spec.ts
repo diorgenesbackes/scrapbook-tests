@@ -7,6 +7,7 @@ if (!code || !/^[A-Za-z0-9_-]{43}$/.test(code) || !file) {
   throw new Error('Informe o código e o relógio da stack local descartável da página pública.')
 }
 const path = '/e/' + code
+const qrName = 'QR code da página dos convidados'
 
 async function setServerTime(value: string) {
   const handle = await open(file!, 'r+')
@@ -32,8 +33,9 @@ if (process.env.SCRAPBOOK_TEST_PUBLIC_4G === 'true') {
     await expect(page.getByText(/Os envios abrem em/)).toBeVisible()
     await expect(page.locator('.guest-cover')).toBeVisible()
     await expect.poll(() => page.locator('.guest-cover').evaluate((cover: HTMLImageElement) => cover.naturalWidth)).toBeGreaterThan(0)
+    await expect(page.getByRole('img', { name: qrName })).toBeVisible()
     const readyMs = await page.evaluate(() => performance.now())
-    console.log('Página pronta em 4G com cache frio em ' + readyMs.toFixed(0) + ' ms.')
+    console.log('Página e QR prontos em 4G com cache frio em ' + readyMs.toFixed(0) + ' ms.')
     expect(readyMs).toBeLessThanOrEqual(3_000)
   })
 } else {
@@ -49,6 +51,11 @@ if (process.env.SCRAPBOOK_TEST_PUBLIC_4G === 'true') {
     await expect(page.getByRole('link', { name: 'Meus eventos' })).toHaveCount(0)
     await expect(page.getByText(/28\/02\/2032 às 23:00/)).toBeVisible()
     await expect(page.getByRole('button', { name: 'Deixe um depoimento' })).toHaveCount(0)
+    const qr = page.getByRole('img', { name: qrName })
+    await expect(qr).toBeVisible()
+    const matrix = await qr.locator('path').getAttribute('d')
+    await expect(page.getByRole('region', { name: 'Compartilhar com outro convidado' }).getByRole('link'))
+      .toHaveAttribute('href', new URL(path, page.url()).href)
     await page.getByRole('link', { name: 'Ir para o conteúdo' }).focus()
     await page.keyboard.press('Enter')
     await expect(page.getByRole('main')).toBeFocused()
@@ -58,6 +65,7 @@ if (process.env.SCRAPBOOK_TEST_PUBLIC_4G === 'true') {
     await page.clock.runFor(4_100)
     await expect(page.getByRole('button', { name: 'Deixe um depoimento' })).toBeDisabled()
     await expect(page.getByRole('button', { name: 'Registre um momento' })).toBeDisabled()
+    await expect(qr.locator('path')).toHaveAttribute('d', matrix!)
 
     await setServerTime('2032-03-01T14:59:58Z')
     await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
@@ -66,6 +74,7 @@ if (process.env.SCRAPBOOK_TEST_PUBLIC_4G === 'true') {
     await page.clock.runFor(2_100)
     await expect(page.getByText('O prazo para novos envios terminou.')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Deixe um depoimento' })).toHaveCount(0)
+    await expect(qr.locator('path')).toHaveAttribute('d', matrix!)
   })
 
   test('CA4: mostra indisponibilidade e oferece recuperação depois de falha transitória', async ({ page }) => {
