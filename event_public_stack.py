@@ -87,9 +87,26 @@ class EventPublicStackTests(EventAccessStackTests):
         self.assertEqual("2032-03-03T12:00:00", data["submissionWindow"]["closesAt"])
         self.assertEqual("2032-03-03T13:00:00", data["submissionWindow"]["completionDeadlineAt"])
 
-    def run_public_browser(self, code, *, performance=False):
+    def verify_share_link(self, event, code):
+        path = f"{EVENTS}/{event['id']}/public-link"
+        missing = f"{EVENTS}/9223372036854775807/public-link"
+        self.assertEqual((401, "IDENTITY_AUTHENTICATION_REQUIRED"), self.problem(path, anonymous=True))
+        self.assertEqual((401, "IDENTITY_AUTHENTICATION_REQUIRED"),
+            self.problem(path, headers={"Authorization": "Bearer expired-fixture"}))
+        for denied_path in (path, missing):
+            self.assertEqual((404, "RESOURCE_NOT_FOUND"), self.problem(denied_path, outsider=True))
+        for other in (False, True):
+            status, headers, result = self.request(path, other=other)
+            self.assertEqual((200, {"code": code}), (status, result))
+            self.assertEqual("no-store", headers.get("Cache-Control"))
+        logs = self.stack.logs("service") + self.stack.logs("ui")
+        if code in logs:
+            self.fail("A telemetria contém o código de compartilhamento da fixture.")
+
+    def run_public_browser(self, event, code, *, performance=False):
         env = self.stack.environment | {"PLAYWRIGHT_BASE_URL": self.origin,
             "SCRAPBOOK_TEST_PUBLIC_CODE": code, "SCRAPBOOK_TEST_CLOCK_FILE": str(self.clock_file),
+            "SCRAPBOOK_TEST_PUBLIC_EVENT_ID": event["id"], "SCRAPBOOK_TEST_AUTHORIZATION": self.authorization,
             "SCRAPBOOK_TEST_PUBLIC_4G": str(performance).lower()}
         if env.pop("NO_COLOR", None):
             env.update(FORCE_COLOR="0", DEBUG_COLORS="0")
@@ -115,17 +132,20 @@ class EventPublicStackTests(EventAccessStackTests):
         self.configure_clock()
         self.set_time(BEFORE)
         self.prepare()
-        _, first = self.create_event("Celebração pública sintética", "Boas-vindas sintéticas.")
+        first_event, first = self.create_event("Celebração pública sintética", "Boas-vindas sintéticas.")
         second_event, second = self.create_event("Outro evento sintético")
+        self.add_second_owner(second_event["id"])
         self.seed_protected_record(int(second_event["id"]))
         self.verify_window(first)
         self.verify_privacy(second)
+        self.verify_share_link(second_event, second)
         self.verify_edited_event(second_event, second)
-        print("Consulta anônima, bordas, edição pelo mesmo código e privacidade verificadas.", flush=True)
+        self.verify_share_link(second_event, second)
+        print("Consulta anônima, janelas, vínculo, edição pelo mesmo código e privacidade verificados.", flush=True)
         if self.browser:
-            self.run_public_browser(first)
+            self.run_public_browser(first_event, first)
         if self.load:
-            self.run_public_browser(first, performance=True)
+            self.run_public_browser(first_event, first, performance=True)
             self.run_public_load(first, second)
 
 
