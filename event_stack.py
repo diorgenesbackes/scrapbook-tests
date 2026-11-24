@@ -71,8 +71,10 @@ class EventStackTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
 
     def request(self, path=EVENTS, *, draft=None, raw=None, key=None, other=False, outsider=False,
-                anonymous=False, headers=None, method=None):
-        if outsider:
+                anonymous=False, headers=None, method=None, identity=None):
+        if identity is not None:
+            origin, authorization = identity
+        elif outsider:
             origin, authorization = self.outsider_origin, self.outsider_authorization
         elif other:
             origin, authorization = self.second_origin, self.second_authorization
