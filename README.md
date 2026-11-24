@@ -39,3 +39,5 @@ python3 docker_stack.py --browser
 ## Composição e revisão de depoimento em texto
 
 `python3 -B testimonial_stack.py` usa a stack descartável com dois eventos e relógio controlado. Verifica o ingresso pela página pública, a janela, os limites de texto, a revisão, a identificação sintética e o diálogo de descarte. Mede cinco aberturas com cache frio em 4G emulado e registra o tempo de revisão. O runner repete as jornadas de página pública e compartilhamento, confere a persistência e a telemetria e encerra os próprios recursos.
+
+`python3 -B photo_stack.py` acrescenta as jornadas de seleção, troca e remoção de fotos, limites por categoria, legenda, identificação e descarte. Exercita os arquivos de imagem sintéticos em `photos/fixtures`, registra a compatibilidade HEIC por navegador e mede a prontidão e as prévias de 1 e 10 fotos em 4G emulado. Também repete as regressões do depoimento em texto e da página pública.
