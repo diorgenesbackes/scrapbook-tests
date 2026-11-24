@@ -43,3 +43,5 @@ python3 docker_stack.py --browser
 `python3 -B photo_stack.py` acrescenta as jornadas de seleção, troca e remoção de fotos, limites por categoria, legenda, identificação e descarte. Exercita os arquivos de imagem sintéticos em `photos/fixtures`, registra a compatibilidade HEIC por navegador e mede a prontidão e as prévias de 1 e 10 fotos em 4G emulado. Também repete as regressões do depoimento em texto e da página pública.
 
 `python3 -B media_stack.py` exercita seleção e revisão de vídeo e áudio, com fixtures sintéticas em `media/fixtures`. Verifica bordas de duração, compatibilidade de containers e codecs, recuperação, legenda, descarte e privacidade. O runner mede os metadados e a prontidão da prévia em 4G emulado e repete as regressões de fotos, texto e página pública.
+
+`python3 -B camera_stack.py` usa a câmera sintética do Chromium para fotografar, refazer e revisar depoimento e momento. Verifica fallback de arquivo com acesso recusado, falha de captura, descarte e encerramento de trilhas. Mede a prontidão e a liberação de recursos em 4G com Android emulado e repete as regressões da F07 e da página pública.
