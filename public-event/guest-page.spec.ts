@@ -64,7 +64,7 @@ if (process.env.SCRAPBOOK_TEST_PUBLIC_4G === 'true') {
     await setServerTime('2032-02-29T02:00:00Z')
     await page.clock.runFor(4_100)
     await expect(page.getByRole('link', { name: 'Deixe um depoimento' })).toHaveAttribute('href', path + '/depoimento')
-    await expect(page.getByRole('button', { name: 'Registre um momento' })).toBeDisabled()
+    await expect(page.getByRole('link', { name: 'Registre um momento' })).toHaveAttribute('href', path + '/momento')
     await expect(qr.locator('path')).toHaveAttribute('d', matrix!)
 
     await setServerTime('2032-03-01T14:59:58Z')
