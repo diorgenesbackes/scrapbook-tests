@@ -35,3 +35,7 @@ python3 docker_stack.py --browser
 ## Primeira identificação do convidado
 
 `python3 -B guest_identification_stack.py` sobe uma stack descartável com dois eventos abertos, relógio controlado e aviso sintético. Exercita a primeira identificação por teclado, o retorno, a edição com nova concordância, a troca de categoria e evento, a recuperação com rascunho e os registros locais inválidos. Também cobre link inválido, layout a 320 px e verificações automatizadas de acessibilidade. Em Chromium, mede cinco aberturas com cache frio e rede 4G emulada em cada estado: primeira identificação, retorno e armazenamento indisponível. O runner confere os registros e logs da stack e remove os próprios recursos ao terminar. Prepare os navegadores pelo comando da fundação local.
+
+## Composição e revisão de depoimento em texto
+
+`python3 -B testimonial_stack.py` usa a stack descartável com dois eventos e relógio controlado. Verifica o ingresso pela página pública, a janela, os limites de texto, a revisão, a identificação sintética e o diálogo de descarte. Mede cinco aberturas com cache frio em 4G emulado e registra o tempo de revisão. O runner repete as jornadas de página pública e compartilhamento, confere a persistência e a telemetria e encerra os próprios recursos.
