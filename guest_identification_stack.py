@@ -7,7 +7,7 @@ from event_public_stack import EventPublicStackTests
 
 
 class GuestIdentificationStackTests(EventPublicStackTests):
-    def test_first_identification(self):
+    def test_guest_identification(self):
         self.configure_clock()
         self.set_time("2032-02-29T04:00:00Z")
         self.prepare()
@@ -29,7 +29,8 @@ class GuestIdentificationStackTests(EventPublicStackTests):
         self.assertEqual("0", self.stack.app_sql("SELECT count(*) FROM scrapbook.records;"))
         logs = self.stack.logs("service") + self.stack.logs("ui")
         if any(marker in logs for marker in (
-            "Convidada sintética da F06", "Convidada%20sint%C3%A9tica%20da%20F06", "f06-local-v1",
+            "Convidada sintética da F06", "Convidada%20sint%C3%A9tica%20da%20F06", "Convidada atualizada da F06",
+            "Rascunho sintético da F06", "f06-local-v1",
         )):
             self.fail("Os dados da identificação sintética apareceram nos logs.")
         print("Contexto anônimo, registros e telemetria verificados no Docker.", flush=True)
@@ -37,5 +38,5 @@ class GuestIdentificationStackTests(EventPublicStackTests):
 
 if __name__ == "__main__":
     os.environ.pop("NO_COLOR", None)
-    suite = unittest.TestSuite([GuestIdentificationStackTests("test_first_identification")])
+    suite = unittest.TestSuite([GuestIdentificationStackTests("test_guest_identification")])
     raise SystemExit(not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful())
