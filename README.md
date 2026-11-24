@@ -31,3 +31,7 @@ python3 docker_stack.py --browser
 `python3 -B invitation_stack.py --browser --load` valida emissão e substituição do QR do segundo responsável com PostgreSQL, chaves sintéticas e relógio controlado. `--browser` verifica a jornada de emissão e a entrada sem consumo. `--load` mede consulta e emissão com 12 requisições concorrentes e uma consulta sob lock controlado.
 
 `python3 -B invitation_acceptance_stack.py --browser --load` valida prévia e aceite, autorização, corrida pela vaga, borda de expiração, disputa com a trava, rollback e recuperação. `--browser` abre o QR em um contexto independente e recupera uma resposta perdida. `--load` mede prévia e aceite no mesmo convite e em eventos distintos com 12 requisições concorrentes.
+
+## Primeira identificação do convidado
+
+`python3 -B guest_identification_stack.py` sobe uma stack descartável com dois eventos abertos, relógio controlado e aviso sintético. Executa a primeira identificação por teclado, valida os campos e testa a separação por evento, a indisponibilidade do link inválido, o layout a 320 px e as regras automatizadas de acessibilidade. Em Chromium, mede cinco aberturas com cache frio e rede 4G emulada. O runner também confere os registros e logs da stack e remove os próprios recursos ao terminar. Prepare os navegadores do Playwright pelo comando da fundação local.
