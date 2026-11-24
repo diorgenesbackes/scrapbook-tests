@@ -45,3 +45,5 @@ python3 docker_stack.py --browser
 `python3 -B media_stack.py` exercita seleção e revisão de vídeo e áudio, com fixtures sintéticas em `media/fixtures`. Verifica bordas de duração, compatibilidade de containers e codecs, recuperação, legenda, descarte e privacidade. O runner mede os metadados e a prontidão da prévia em 4G emulado e repete as regressões de fotos, texto e página pública.
 
 `python3 -B camera_stack.py` usa a câmera sintética do Chromium para fotografar, refazer e revisar depoimento e momento. Verifica fallback de arquivo com acesso recusado, falha de captura, descarte e encerramento de trilhas. Mede a prontidão e a liberação de recursos em 4G com Android emulado e repete as regressões da F07 e da página pública.
+
+`python3 -B recording_stack.py` usa câmera e microfone sintéticos no Chromium e no Firefox. Exercita gravação e revisão, falhas, descarte, as bordas de 60 e 300 s com relógio controlado e uma gravação real de 60 s em 4G emulado. Verifica o encerramento das trilhas, os arquivos gerados e a ausência de envio. Também repete as regressões de câmera fotográfica, seleção de mídias, texto e página pública.

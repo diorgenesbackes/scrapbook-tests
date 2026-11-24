@@ -152,7 +152,7 @@ if (process.env.SCRAPBOOK_TEST_CAMERA_4G === 'true') {
     await context.grantPermissions(['camera'])
     await observeCamera(page)
     const response = await selectPhotoFormat(page, testimonial)
-    expect(response?.headers()['permissions-policy']).toBe('camera=(self), microphone=(), geolocation=()')
+    expect(response?.headers()['permissions-policy']).toBe('camera=(self), microphone=(self), geolocation=()')
     expect((await cameraState(page)).requests).toHaveLength(0)
     await capture(page)
     await expect(photo(page, 1)).toBeVisible()
