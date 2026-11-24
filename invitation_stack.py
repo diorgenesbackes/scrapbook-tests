@@ -197,7 +197,7 @@ class InvitationStackTests(EventAccessStackTests):
         print(f"60 consultas p95 {current_p95:.2f} ms, 60 emissões p95 {issue_p95:.2f} ms, "
               f"consulta sob lock controlado {blocked:.2f} ms.", flush=True)
 
-    def test_invitation_journey(self):
+    def prepare_invitation_stack(self):
         self.configure_clock()
         self.set_time(ISSUED)
         self.stack.environment.update(
@@ -206,6 +206,9 @@ class InvitationStackTests(EventAccessStackTests):
             SCRAPBOOK_INVITATION_ENCRYPTION_KEY=secrets.token_hex(32),
         )
         self.prepare()
+
+    def test_invitation_journey(self):
+        self.prepare_invitation_stack()
         first = self.immediate_event(DRAFT["startsAt"])
         self.verify_authorization(first)
         self.verify_rotation(first)

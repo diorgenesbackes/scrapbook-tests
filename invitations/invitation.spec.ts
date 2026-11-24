@@ -1,21 +1,5 @@
-import { expect, test, type Locator } from '@playwright/test'
-import jsQR from 'jsqr'
-
-async function decodeQr(qr: Locator) {
-  const pixels = await qr.evaluate(async element => {
-    const svg = new XMLSerializer().serializeToString(element)
-    const image = new Image()
-    image.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)
-    await image.decode()
-    const canvas = document.createElement('canvas')
-    canvas.width = canvas.height = 384
-    const context = canvas.getContext('2d')!
-    context.imageSmoothingEnabled = false
-    context.drawImage(image, 0, 0, 384, 384)
-    return Array.from(context.getImageData(0, 0, 384, 384).data)
-  })
-  return jsQR(new Uint8ClampedArray(pixels), 384, 384)?.data
-}
+import { expect, test } from '@playwright/test'
+import { decodeQr } from './decodeQr'
 
 test('emite e substitui por teclado e abre o QR sem consumir o convite', async ({ page, browser }, info) => {
   const authorization = process.env.SCRAPBOOK_TEST_AUTHORIZATION
