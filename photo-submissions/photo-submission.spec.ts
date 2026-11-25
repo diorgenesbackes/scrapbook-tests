@@ -11,10 +11,19 @@ const second = process.env.SCRAPBOOK_TEST_SECOND_PUBLIC_CODE
 const clock = process.env.SCRAPBOOK_TEST_CLOCK_FILE
 const fixturePath = process.env.SCRAPBOOK_TEST_PHOTO_FIXTURE
 const photoPath = process.env.SCRAPBOOK_TEST_PHOTO_PERFORMANCE_FILE
+const opening = process.env.SCRAPBOOK_TEST_PHOTO_OPEN
+const closing = process.env.SCRAPBOOK_TEST_PHOTO_CLOSE
+const deadline = process.env.SCRAPBOOK_TEST_PHOTO_DEADLINE
 const publicCode = /^[A-Za-z0-9_-]{43}$/
 if (!first || !second || first === second || !publicCode.test(first) || !publicCode.test(second)
-  || !clock || !fixturePath || !photoPath) {
-  throw new Error('Informe o relógio, a fixture de mídia e os dois eventos da stack descartável.')
+  || !clock || !fixturePath || !photoPath || !opening || !closing || !deadline) {
+  throw new Error('Informe o relógio, os marcos de tempo, a fixture de mídia e os dois eventos da stack descartável.')
+}
+
+const exactUtc = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/
+if (![opening, closing, deadline].every(instant => exactUtc.test(instant) && Number.isFinite(Date.parse(instant)))
+  || !(Date.parse(opening) < Date.parse(closing) && Date.parse(closing) < Date.parse(deadline))) {
+  throw new Error('Os marcos de tempo da fixture precisam estar em UTC e em ordem cronológica.')
 }
 
 const fixture = JSON.parse(await readFile(fixturePath, 'utf8'))
@@ -30,10 +39,8 @@ if (!/^http:\/\/127\.0\.0\.1:[0-9]{1,5}$/.test(endpoint)
 }
 
 const sample = await readFile(photoPath)
-const opening = '2032-02-29T02:00:00.000Z'
-const deadline = '2032-03-01T16:00:00.000Z'
-const afterDeadline = '2032-03-01T16:01:00.000Z'
-const caption = 'Legenda sintética com acento e emoji 📷'
+const afterDeadline = new Date(Date.parse(deadline) + 60_000).toISOString()
+const caption = 'Legenda sintética. ' + '📷'.repeat(481)
 const guestName = 'Convidada sintética da foto'
 const filename = 'depoimento-sintetico.png'
 const run = promisify(execFile)
@@ -94,6 +101,7 @@ async function identify(page: Page) {
   await expect(preview(page)).toBeVisible()
   await buttons(page, 'Deseja adicionar uma legenda?').press('Enter')
   await page.getByRole('textbox', { name: 'Legenda das fotos' }).fill(caption)
+  await expect(page.getByText('0 caracteres restantes na legenda.')).toBeVisible()
   await buttons(page, 'Revisar').press('Enter')
   await expect(page.getByRole('heading', { name: 'Revisar depoimento' })).toBeFocused()
   await expect(page.getByText(caption, { exact: true })).toBeVisible()
@@ -141,7 +149,7 @@ async function checkReceipt(page: Page, oldPhoto: string, confirmedAt: string) {
   expect(await page.evaluate(url => fetch(url).then(() => false, () => true), oldPhoto)).toBe(true)
 }
 
-test.beforeEach(async () => setTime(opening))
+test.beforeEach(async () => setTime(opening!))
 
 test('CA1–CA2: seleciona e revisa foto, transfere bytes por teclado e reinicia após o recibo', async ({ page, context }) => {
   const attempt = observeAttempt(page, first!)
@@ -174,8 +182,8 @@ test('CA1–CA2: seleciona e revisa foto, transfere bytes por teclado e reinicia
   expect(draft.files).toHaveLength(1)
   expect(JSON.stringify(draft).includes(filename)).toBe(false)
 
-  await notifyPhoto(response, sample.length, opening)
-  await checkReceipt(page, oldPhoto, opening)
+  await notifyPhoto(response, sample.length, opening!)
+  await checkReceipt(page, oldPhoto, opening!)
   await expect(page.getByRole('link', { name: 'Registrar um momento' })).toHaveAttribute('href', '/e/' + first + '/momento')
   expect((await new AxeBuilder({ page }).include('.testimonial').analyze()).violations).toEqual([])
   await buttons(page, 'Deixar outro depoimento').press('Enter')
@@ -228,7 +236,7 @@ test('CA2–CA3: retoma foto capturada pela mesma tentativa e recebe confirmaç�
   expect(sameAttempt.every(Boolean)).toBe(true)
 
   await setTime(afterDeadline)
-  await notifyPhoto(response, files[0].sizeBytes, deadline)
+  await notifyPhoto(response, files[0].sizeBytes, deadline!)
   await checkReceipt(page, oldPhoto, afterDeadline)
   await expect(buttons(page, 'Deixar outro depoimento')).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Registrar um momento' })).toHaveCount(0)
