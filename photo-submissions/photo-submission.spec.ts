@@ -33,7 +33,7 @@ const sample = await readFile(photoPath)
 const opening = '2032-02-29T02:00:00.000Z'
 const deadline = '2032-03-01T16:00:00.000Z'
 const afterDeadline = '2032-03-01T16:01:00.000Z'
-const caption = 'Legenda sintética com acento e emoji 📷'
+const caption = 'Legenda sintética. ' + '📷'.repeat(481)
 const guestName = 'Convidada sintética da foto'
 const filename = 'depoimento-sintetico.png'
 const run = promisify(execFile)
@@ -94,6 +94,7 @@ async function identify(page: Page) {
   await expect(preview(page)).toBeVisible()
   await buttons(page, 'Deseja adicionar uma legenda?').press('Enter')
   await page.getByRole('textbox', { name: 'Legenda das fotos' }).fill(caption)
+  await expect(page.getByText('0 caracteres restantes na legenda.')).toBeVisible()
   await buttons(page, 'Revisar').press('Enter')
   await expect(page.getByRole('heading', { name: 'Revisar depoimento' })).toBeFocused()
   await expect(page.getByText(caption, { exact: true })).toBeVisible()
