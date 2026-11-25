@@ -31,7 +31,6 @@ if (!/^http:\/\/127\.0\.0\.1:[0-9]{1,5}$/.test(endpoint)
 
 const sample = await readFile(photoPath)
 const opening = '2032-02-29T02:00:00.000Z'
-const closing = '2032-03-01T15:00:00.000Z'
 const deadline = '2032-03-01T16:00:00.000Z'
 const afterDeadline = '2032-03-01T16:01:00.000Z'
 const caption = 'Legenda sintética com acento e emoji 📷'
@@ -66,7 +65,7 @@ function isPhotoPut(request: Request) {
 async function notifyPhoto(response: Response, size: number, eventTime: string) {
   expect(response.status()).toBe(200)
   const versionId = await response.headerValue('x-amz-version-id')
-  expect(Boolean(versionId)).toBe(true)
+  expect(Boolean(versionId && versionId !== 'null')).toBe(true)
   const key = decodeURIComponent(new URL(response.url()).pathname.slice(bucket.length + 2))
   const envelope = { Records: [{
     eventVersion: '2.1', eventSource: 'aws:s3', awsRegion: region, eventTime, eventName: 'ObjectCreated:Put',
@@ -93,6 +92,7 @@ function preview(page: Page) {
 
 async function identify(page: Page) {
   await expect(preview(page)).toBeVisible()
+  await buttons(page, 'Deseja adicionar uma legenda?').press('Enter')
   await page.getByRole('textbox', { name: 'Legenda das fotos' }).fill(caption)
   await buttons(page, 'Revisar').press('Enter')
   await expect(page.getByRole('heading', { name: 'Revisar depoimento' })).toBeFocused()
@@ -127,7 +127,12 @@ async function checkReceipt(page: Page, oldPhoto: string, confirmedAt: string) {
   const receipt = page.getByRole('region', { name: 'Recebimento confirmado' })
   await expect(receipt.getByRole('heading')).toBeFocused({ timeout: 20_000 })
   await expect(receipt.getByText('Sua contribuição foi guardada.')).toBeVisible()
-  await expect(receipt.locator('time')).toHaveAttribute('datetime', confirmedAt)
+  const presentedTime = await receipt.locator('time').getAttribute('datetime')
+  expect(Date.parse(presentedTime ?? '')).toBe(Date.parse(confirmedAt))
+  const brasilia = new Intl.DateTimeFormat('pt-BR', {
+    dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo',
+  })
+  await expect(receipt.locator('time')).toHaveText(brasilia.format(new Date(confirmedAt)))
   await expect(receipt.getByText('Horário de Brasília', { exact: false })).toBeVisible()
   await expect(receipt.getByRole('img')).toHaveCount(0)
   await expect(receipt.getByText(caption)).toHaveCount(0)
@@ -222,7 +227,6 @@ test('CA2–CA3: retoma foto capturada pela mesma tentativa e recebe confirmaç�
     && await request.headerValue('Authorization') === credential))
   expect(sameAttempt.every(Boolean)).toBe(true)
 
-  await setTime(closing)
   await setTime(afterDeadline)
   await notifyPhoto(response, files[0].sizeBytes, deadline)
   await checkReceipt(page, oldPhoto, afterDeadline)
