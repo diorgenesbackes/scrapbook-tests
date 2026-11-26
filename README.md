@@ -65,3 +65,7 @@ python3 docker_stack.py --browser
 `python3 -B audio_submission_stack.py` usa a stack descartável de mídia para validar MP3, M4A, WAV, Ogg e WebM, os limites de tamanho e duração, a recepção às 13h, o original privado e os fatos de confirmação. Acrescente `--with-browser` para selecionar e gravar áudio no Chromium, retomar o envio e conferir o recibo. Prepare o Chromium pelo comando da fundação local.
 
 `python3 -B mixed_submission_load.py --output /private/tmp/scrapbook-f08-carga` usa k6 para medir 200 tentativas em dois eventos sintéticos, com texto, foto, vídeo e áudio. A pasta de saída deve ser nova. Os relatórios da rodada guardam latência por operação da API, transferência, tempo até o recibo, sobreposição das tentativas, uso de recursos e contagens confirmadas no banco.
+
+## Travamento após primeiro registro
+
+`python3 -B event_structural_lock_stack.py` cria uma stack local e descartável com PostgreSQL, SNS e SQS emulados. Confirma texto e mídia, confere a trava estrutural e a auditoria e exercita rejeição, reentrega do fato, corrida com edição e aceite, revogação de convite e política de abertura. Use `--browser` para acrescentar as jornadas Chromium com os eventos do laboratório. `--load --output /private/tmp/scrapbook-f09-carga.json` mede da confirmação à trava persistida em 100 eventos distintos com até 20 solicitações concorrentes. O relógio da aplicação é real nessas rodadas.
