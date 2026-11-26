@@ -22,6 +22,7 @@ jobs:
       - run: npm ci
       - run: npm exec -- playwright test --list
       - run: npm exec -- playwright test --config playwright.events.config.ts --list
+      - run: npm exec -- playwright test --config playwright.event-structural-lock.config.ts --list
       - run: npm exec -- playwright test --config playwright.audio-submission.config.ts --list
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
