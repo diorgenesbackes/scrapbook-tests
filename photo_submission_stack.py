@@ -36,6 +36,7 @@ def utc_timestamp(instant):
 class PhotoSubmissionStackTests(SubmissionStackTests):
     include_browser = False
     include_load = False
+    drop_lock_ack = False
 
     def set_photo_clock(self):
         brasilia = ZoneInfo("America/Sao_Paulo")
@@ -66,6 +67,7 @@ class PhotoSubmissionStackTests(SubmissionStackTests):
             sys.executable, str(INFRASTRUCTURE / "scripts" / "photo_media_fixture.py"), "start",
             "--ui-origin", self.origin, "--network", self.stack.project + "_default", "--manual-events",
             *(("--video",) if enable_video else ()),
+            *(("--drop-lock-ack",) if self.drop_lock_ack else ()),
         ], env=self.stack.environment, text=True, capture_output=True, timeout=120)
         self.assertEqual(0, fixture.returncode, fixture.stderr)
         self.storage = json.loads(fixture.stdout)
