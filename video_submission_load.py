@@ -1,9 +1,11 @@
 import argparse
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 from threading import Event
 import time
@@ -37,6 +39,7 @@ class VideoSubmissionLoadTests(VideoSubmissionStackTests):
         return len(self.published) - before
 
     def measure_profile(self, profile, environment):
+        summary = self.output / f"{profile}.summary.json"
         with (self.output / f"{profile}.docker.jsonl").open("wb") as samples, \
                 (self.output / f"{profile}.k6.log").open("w", encoding="utf-8") as log:
             components = self.stack.compose_command("ps", "-q", "service", "postgres").stdout.splitlines()
@@ -47,7 +50,7 @@ class VideoSubmissionLoadTests(VideoSubmissionStackTests):
                     time.sleep(2)
                     result = subprocess.run(["k6", "run", "--quiet", "--log-output", "none", "--include-system-env-vars",
                         "--no-usage-report", "--config", str(self.stack.env_file.parent / "video-k6.json"),
-                        "--summary-export", str(self.output / f"{profile}.summary.json"),
+                        "--summary-export", str(summary),
                         "--out", "json=" + str(self.output / f"{profile}.samples.jsonl"), str(SCRIPT)],
                         env=environment | {"SCRAPBOOK_LOAD_VIDEO_PROFILE": profile},
                         stdout=log, stderr=subprocess.STDOUT, timeout=150)
@@ -56,6 +59,10 @@ class VideoSubmissionLoadTests(VideoSubmissionStackTests):
                 finally:
                     monitor.terminate()
                     monitor.wait(timeout=10)
+                    if summary.exists():
+                        data = json.loads(summary.read_text(encoding="utf-8"))
+                        data.pop("setup_data", None)
+                        summary.write_text(json.dumps(data), encoding="utf-8")
 
     def run_profile(self, profile, environment):
         if profile == "admission":
@@ -72,9 +79,26 @@ class VideoSubmissionLoadTests(VideoSubmissionStackTests):
                 json.dumps({"syntheticReceiptEvents": notifications.result()}), encoding="utf-8")
         return result
 
+    def record_database(self, phase):
+        codes = Counter(re.findall(r"\b(?:ERROR|FATAL|PANIC):\s+([0-9A-Z]{5}):", self.stack.logs("postgres")))
+        statuses = self.stack.app_sql("""
+            SELECT coalesce(json_agg(snapshot), '[]'::json)
+            FROM (
+                SELECT session.state, session.last_error_code, count(*) AS attempts
+                FROM scrapbook.upload_sessions AS session
+                JOIN scrapbook.records AS record ON record.id = session.upload_sessions_records_id
+                WHERE record.format = 'video'
+                GROUP BY session.state, session.last_error_code
+                ORDER BY session.state, session.last_error_code
+            ) AS snapshot;
+        """)
+        (self.output / f"{phase}.database.json").write_text(
+            json.dumps({"postgresErrorTotals": codes, "sessionStateTotals": json.loads(statuses)}), encoding="utf-8")
+
     def test_video_load(self):
         self.configure_photos(enable_video=True)
         self.prepare()
+        self.admin_sql("ALTER SYSTEM SET log_error_verbosity = 'verbose'; SELECT pg_reload_conf();")
         self.set_photo_clock()
         _, first = self.create_photo_event("Carga sintética de vídeo A")
         _, second = self.create_photo_event("Carga sintética de vídeo B")
@@ -97,8 +121,11 @@ class VideoSubmissionLoadTests(VideoSubmissionStackTests):
             "SCRAPBOOK_LOAD_VIDEO_MANIFEST": str(manifest_file),
         }
         warmup = self.run_profile("warmup", environment)
+        self.record_database("warmup")
         resume = self.run_profile("resume", environment) if warmup == 0 else None
+        self.record_database("before-admission")
         admission = self.run_profile("admission", environment)
+        self.record_database("admission")
         self.assertEqual((0, 0, 0), (warmup, resume, admission),
             "Consulte o relatório de cada perfil. A rodada de retomada depende do aquecimento.")
 
