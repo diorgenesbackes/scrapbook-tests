@@ -81,16 +81,16 @@ class EventStructuralLockRecoveryStackTests(EventStructuralLockStackTests):
         self.assertLess(abs((occurred - outcome_time).total_seconds()), 0.000002)
         self.assertGreaterEqual(outcome_time, datetime.fromisoformat(data["confirmedAt"]))
 
-    def read_deliveries(self, queue, visibility=15):
+    def read_deliveries(self, queue, visibility=15, limit=10):
         response = self.aws(("sqs", "receive-message"), "--queue-url", queue,
-            "--wait-time-seconds", "1", "--visibility-timeout", str(visibility), "--max-number-of-messages", "10")
+            "--wait-time-seconds", "1", "--visibility-timeout", str(visibility), "--max-number-of-messages", str(limit))
         return [delivery["Body"] for delivery in response.get("Messages", [])]
 
     def read_dead_letter(self, message):
         queue = self.transport["deadLetterQueueUrl"]
 
         def find():
-            return next((body for body in self.read_deliveries(queue, visibility=0)
+            return next((body for body in self.read_deliveries(queue, visibility=1, limit=1)
                 if json.loads(body).get("messageId") == str(message)), None)
 
         try:
