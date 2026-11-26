@@ -28,6 +28,8 @@ const operations = {
 }
 const admitted = new Counter('video_admitted')
 const confirmed = new Counter('video_confirmed')
+const admissionErrors = new Counter('video_admission_errors')
+const transportErrors = new Counter('video_put_transport_errors')
 const putBytes = new Counter('video_put_attempted_bytes')
 const acceptedBytes = new Counter('video_put_accepted_bytes')
 const resumedBytes = new Counter('video_recognized_bytes')
@@ -108,6 +110,11 @@ function transferPart(file, headers, number, sent) {
   sent.add(number)
   const uploaded = http.put(grant.json('url'), bytes,
     params('video_put_part', { ...grant.json('headers'), 'Content-Type': 'application/octet-stream' }, '30s'))
+  if (uploaded.status === 0) {
+    const error = uploaded.error ?? ''
+    const cause = /broken pipe|connection reset by peer|unexpected EOF|EOF|timeout/.exec(error)?.[0] ?? 'other'
+    transportErrors.add(1, { cause })
+  }
   const accepted = check(uploaded, { 'parte aceita com checksum': reply => reply.status === 200
     && reply.headers['X-Amz-Checksum-Sha256'] === partDigest })
   if (accepted) acceptedBytes.add(bytes.byteLength)
@@ -162,6 +169,13 @@ export default function (proofs) {
   }
   const admission = http.post(path, JSON.stringify(media),
     params(operations.admit, { ...headers, 'Idempotency-Key': attemptKey }))
+  if (admission.status !== 201) {
+    const problemType = admission.headers['Content-Type'] ?? ''
+    const code = problemType.startsWith('application/problem+json') ? admission.json('code') : 'non_problem_response'
+    const problem = ['DEPENDENCY_UNAVAILABLE', 'VIDEO_SUBMISSION_DISABLED', 'non_problem_response'].includes(code)
+      ? code : 'other'
+    admissionErrors.add(1, { problem })
+  }
   if (!check(admission, { 'admissão de nova tentativa': reply => reply.status === 201
     && reply.json('state') === 'receiving' && reply.headers.Location.endsWith('/' + attemptKey) })) return
 
