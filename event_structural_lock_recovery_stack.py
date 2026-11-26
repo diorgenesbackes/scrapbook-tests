@@ -239,7 +239,7 @@ class EventStructuralLockRecoveryStackTests(EventStructuralLockStackTests):
         self.wait_queue_drained()
         self.assertEqual(final, self.outcomes(event))
         self.assertEqual(locked, self.wait_for_lock(event))
-        self.assertEqual("1", self.stack.app_sql(f"""
+        self.assertEqual("1", self.admin_sql(f"""
             SELECT count(*) FROM scrapbook.audit_entries
             WHERE audit_entries_events_id={int(event)} AND action='{LOCK_AUDIT}';
         """))
