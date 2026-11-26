@@ -81,18 +81,26 @@ class EventStructuralLockRecoveryStackTests(EventStructuralLockStackTests):
         self.assertLess(abs((occurred - outcome_time).total_seconds()), 0.000002)
         self.assertGreaterEqual(outcome_time, datetime.fromisoformat(data["confirmedAt"]))
 
-    def read_deliveries(self, queue):
+    def read_deliveries(self, queue, visibility=15):
         response = self.aws(("sqs", "receive-message"), "--queue-url", queue,
-            "--wait-time-seconds", "1", "--visibility-timeout", "15", "--max-number-of-messages", "10")
+            "--wait-time-seconds", "1", "--visibility-timeout", str(visibility), "--max-number-of-messages", "10")
         return [delivery["Body"] for delivery in response.get("Messages", [])]
 
     def read_dead_letter(self, message):
         queue = self.transport["deadLetterQueueUrl"]
 
         def find():
-            return next((body for body in self.read_deliveries(queue) if json.loads(body).get("messageId") == str(message)), None)
+            return next((body for body in self.read_deliveries(queue, visibility=0)
+                if json.loads(body).get("messageId") == str(message)), None)
 
-        return wait_for(find, "O SQS emulado não preservou o envelope original na DLQ.")
+        try:
+            return wait_for(find, "O SQS emulado não preservou o envelope original na DLQ.", timeout=30)
+        except AssertionError:
+            for name in ("queueUrl", "deadLetterQueueUrl"):
+                counts = self.aws(("sqs", "get-queue-attributes"), "--queue-url", self.transport[name],
+                    "--attribute-names", "ApproximateNumberOfMessages", "ApproximateNumberOfMessagesNotVisible")["Attributes"]
+                print(json.dumps({"queue": name, "counts": counts}), flush=True)
+            raise
 
     def recover(self, stage, message, expected, *, flags=(), body=None):
         sha = subprocess.check_output(["git", "-C", str(ROOT.parent / "scrapbook-service"), "rev-parse", "HEAD"],
