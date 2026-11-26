@@ -46,7 +46,7 @@ class VideoSubmissionLoadTests(VideoSubmissionStackTests):
                 try:
                     time.sleep(2)
                     result = subprocess.run(["k6", "run", "--quiet", "--log-output", "none", "--include-system-env-vars",
-                        "--config", str(self.stack.env_file.parent / "video-k6.json"),
+                        "--no-usage-report", "--config", str(self.stack.env_file.parent / "video-k6.json"),
                         "--summary-export", str(self.output / f"{profile}.summary.json"),
                         "--out", "json=" + str(self.output / f"{profile}.samples.jsonl"), str(SCRIPT)],
                         env=environment | {"SCRAPBOOK_LOAD_VIDEO_PROFILE": profile},
