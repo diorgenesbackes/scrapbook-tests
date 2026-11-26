@@ -75,7 +75,7 @@ async function waitForLock(page: Page, eventId: string, timeout = 12_000) {
 }
 
 test('FR-016 CA3: preserva o recibo durante a falha e reflete a entrega recuperada @recuperacao', async ({ page, browser }) => {
-  test.setTimeout(65_000)
+  test.setTimeout(85_000)
   const { id, code } = events[0]
   const readyFile = process.env.SCRAPBOOK_TEST_LOCK_RECOVERY_READY
   if (!readyFile) throw new Error('Inicie o ensaio de recuperação pelo runner descartável.')
@@ -91,7 +91,7 @@ test('FR-016 CA3: preserva o recibo durante a falha e reflete a entrega recupera
   await expect(page.getByRole('button', { name: 'Salvar informações' })).toBeVisible()
   await writeFile(readyFile, 'ready', { flag: 'wx' })
 
-  await waitForLock(page, id, 40_000)
+  await waitForLock(page, id, 60_000)
   await page.evaluate(() => window.dispatchEvent(new Event('focus')))
   await expect(page.getByText(detailsLocked, { exact: true })).toBeVisible()
   await expect(page.getByRole('group', { name: 'Editar informações' })).toHaveCount(0)

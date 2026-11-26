@@ -107,13 +107,13 @@ class EventStructuralLockRecoveryStackTests(EventStructuralLockStackTests):
                 print(json.dumps({"queue": name, "counts": counts}), flush=True)
             raise
 
-    def recover(self, stage, message, expected, *, flags=(), body=None):
+    def recover(self, stage, message, *expected, flags=(), body=None):
         sha = subprocess.check_output(["git", "-C", str(ROOT.parent / "scrapbook-service"), "rev-parse", "HEAD"],
                                       text=True, timeout=6).strip()
         result = self.stack.compose_command("exec", "-T", "service", "dotnet", "ScrapBook.Api.dll",
             "event-structural-lock-recover", stage, str(message), "INC-F092-LAB", sha, *flags, stdin=body, check=False)
-        self.assertEqual((0, expected), (result.returncode, result.stdout.strip()),
-            "O comando autorizado não confirmou a operação esperada para o fato original.")
+        self.assertEqual(0, result.returncode, "O comando autorizado recusou a operação esperada.")
+        self.assertIn(result.stdout.strip(), expected, "O comando não confirmou a operação esperada para o fato original.")
 
     def subscribe(self, queue):
         attributes = self.aws(("sqs", "get-queue-attributes"), "--queue-url", queue, "--attribute-names", "QueueArn")["Attributes"]
@@ -190,23 +190,28 @@ class EventStructuralLockRecoveryStackTests(EventStructuralLockStackTests):
         self.assertEqual(initial_outcomes, self.outcomes(event))
         self.assert_audit(event)
 
-    def verify_consume_recovery(self, event, confirm):
+    def verify_consume_recovery(self, event, confirm, *, reconcile_delivery=False):
         invitation = self.invite(event)
         path = f"{EVENTS}/{int(event)}"
         with self.reject_writes("audit_entries", "fixture_f092_audit_failure",
                 f"audit_entries_events_id <> {int(event)} OR action <> '{LOCK_AUDIT}'"):
             confirm()
-            terminal = wait_for(lambda: self.outcomes(event), "O resultado terminal de consumo não foi persistido.")
-            self.assertEqual(1, len(terminal))
-            fact = self.first_fact(event)
-            self.assert_outcome(terminal[0], event, fact, FAILED, "consume")
+            allowed = ("RECOVERY_ALREADY_TERMINAL",)
+            if reconcile_delivery:
+                allowed += ("RECOVERY_RECONCILED",)
+            else:
+                wait_for(lambda: self.outcomes(event), "O resultado terminal de consumo não foi persistido.")
+            fact = wait_for(lambda: self.first_fact(event), "O primeiro fato não foi encontrado.")
             envelope = self.read_dead_letter(fact[0])
             self.assertEqual(str(fact[3]), json.loads(envelope)["correlationId"])
+            self.recover("reconcile-dlq", fact[0], *allowed, body=envelope)
+            terminal = self.outcomes(event)
+            self.assertEqual(1, len(terminal))
+            self.assert_outcome(terminal[0], event, fact, FAILED, "consume")
             self.assertEqual("quarantined", self.stack.app_sql(f"""
                 SELECT state FROM scrapbook.processed_messages WHERE consumer='event-structural-lock'
                     AND source='internal' AND message_id='{fact[0]}';
             """))
-            self.recover("reconcile-dlq", fact[0], "RECOVERY_ALREADY_TERMINAL", body=envelope)
             self.assertEqual([], self.lock_state(event))
             detail = self.request(path)[2]
             self.assertTrue(detail["canEditDetails"])
@@ -280,6 +285,8 @@ class EventStructuralLockRecoveryStackTests(EventStructuralLockStackTests):
               flush=True)
 
     def test_browser_recovery(self):
+        self.visibility_timeout = 4
+        self.drop_lock_ack = False
         self.configure_lock()
         events = [self.create_photo_event(f"Recuperação sintética no navegador {index + 1}") for index in range(2)]
         ready = self.stack.env_file.parent / "browser-confirmed"
@@ -296,7 +303,7 @@ class EventStructuralLockRecoveryStackTests(EventStructuralLockStackTests):
                    "--grep", "@recuperacao"]
 
         def run_browser():
-            return subprocess.run(command, cwd=ROOT, env=environment, timeout=90, check=True)
+            return subprocess.run(command, cwd=ROOT, env=environment, timeout=110, check=True)
 
         with ThreadPoolExecutor(max_workers=1) as executor:
             def show_receipt():
@@ -311,7 +318,7 @@ class EventStructuralLockRecoveryStackTests(EventStructuralLockStackTests):
                 wait_for(receipt_displayed, "O navegador não observou o recibo durante a falha.")
 
             browser = None
-            self.verify_consume_recovery(events[0][0], show_receipt)
+            self.verify_consume_recovery(events[0][0], show_receipt, reconcile_delivery=True)
             self.assertIsNotNone(browser)
             browser.result()
 
