@@ -59,7 +59,7 @@ class PhotoSubmissionStackTests(SubmissionStackTests):
         self.assertRegex(code, r"^[A-Za-z0-9_-]{43}$")
         return event_id, code
 
-    def configure_photos(self, *, enable_video=False):
+    def configure_photos(self, *, enable_video=False, enable_audio=False):
         self.configure_submissions()
         self.stack.compose_command("up", "-d", "--wait", "postgres")
         fixture = subprocess.run([
@@ -76,7 +76,9 @@ class PhotoSubmissionStackTests(SubmissionStackTests):
         self.assertEqual("", endpoint.path)
         override = self.stack.env_file.parent / "photo-submissions.compose.json"
         override.write_text(json.dumps({"services": {
-            "service": {"environment": self.storage["environment"]},
+            "service": {"environment": self.storage["environment"] | {
+                "PhotoSubmissions__AudioEnabled": str(enable_audio).lower(),
+            }},
             "ui": {"build": {"args": {"VITE_SUBMISSION_UPLOAD_ORIGIN": self.storage["endpoint"]}}},
         }}), encoding="utf-8")
         override.chmod(0o600)
