@@ -39,7 +39,8 @@ class PhotoSubmissionStackTests(SubmissionStackTests):
 
     def set_photo_clock(self):
         brasilia = ZoneInfo("America/Sao_Paulo")
-        self.admission = datetime.now(timezone.utc).replace(microsecond=0)
+        epoch = self.stack.compose_command("exec", "-T", "service", "date", "-u", "+%s").stdout.strip()
+        self.admission = datetime.fromtimestamp(int(epoch), timezone.utc)
         self.event_start = self.admission.astimezone(brasilia).replace(tzinfo=None)
         civil_deadline = datetime.combine(self.event_start.date() + timedelta(days=1), civil_time(13), brasilia)
         self.deadline = civil_deadline.astimezone(timezone.utc)
@@ -58,12 +59,13 @@ class PhotoSubmissionStackTests(SubmissionStackTests):
         self.assertRegex(code, r"^[A-Za-z0-9_-]{43}$")
         return event_id, code
 
-    def configure_photos(self):
+    def configure_photos(self, *, enable_video=False):
         self.configure_submissions()
         self.stack.compose_command("up", "-d", "--wait", "postgres")
         fixture = subprocess.run([
             sys.executable, str(INFRASTRUCTURE / "scripts" / "photo_media_fixture.py"), "start",
             "--ui-origin", self.origin, "--network", self.stack.project + "_default", "--manual-events",
+            *(("--video",) if enable_video else ()),
         ], env=self.stack.environment, text=True, capture_output=True, timeout=120)
         self.assertEqual(0, fixture.returncode, fixture.stderr)
         self.storage = json.loads(fixture.stdout)
@@ -144,11 +146,11 @@ class PhotoSubmissionStackTests(SubmissionStackTests):
         self.assertTrue(version and version != "null")
         return key, version
 
-    def notify_uploaded(self, key, version, event_time, size):
+    def notify_uploaded(self, key, version, event_time, size, *, operation="Put"):
         bucket = self.storage["bucket"]
         envelope = {"Records": [{"eventVersion": "2.1", "eventSource": "aws:s3",
             "awsRegion": self.storage["environment"]["PhotoSubmissions__Region"], "eventTime": utc_timestamp(event_time),
-            "eventName": "ObjectCreated:Put", "s3": {"s3SchemaVersion": "1.0", "configurationId": "photo-fixture",
+            "eventName": "ObjectCreated:" + operation, "s3": {"s3SchemaVersion": "1.0", "configurationId": "photo-fixture",
                 "bucket": {"name": bucket, "arn": "arn:aws:s3:::" + bucket}, "object": {
                     "key": quote_plus(key), "versionId": version, "size": size, "sequencer": "0000000000000001"}}}]}
         self.aws(("sqs", "send-message"), "--queue-url", self.storage["queueUrl"], "--message-body", json.dumps(envelope))
