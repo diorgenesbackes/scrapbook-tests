@@ -51,3 +51,7 @@ python3 docker_stack.py --browser
 ## Envio e confirmação de depoimento em texto
 
 `python3 -B submission_stack.py` ativa o envio de texto em uma stack descartável com avisos sintéticos, chave efêmera e relógio controlado. Exercita a confirmação transacional, a recuperação com a mesma tentativa, as bordas da janela, o isolamento e a sanitização da telemetria. Prepare os navegadores pelo comando da fundação local e tenha o k6 instalado para medir 200 envios em dois eventos de teste. O runner usa portas de loopback e encerra os próprios recursos.
+
+## Envio e confirmação de depoimento com foto
+
+`python3 -B photo_submission_stack.py` usa PostgreSQL e um S3 versionado local com SQS, AWS CLI e relógio controlado. Envia uma foto sintética pela autorização HTTP emitida pela API e verifica a associação entre evidência de criação, versão validada, original e recibo. Use `--browser` para executar as jornadas de seleção, captura, interrupção e confirmação no Chromium. Use `--load` para medir admissão, autorização e PUT de 200 fotos em dois eventos com k6. O runner cria e encerra recursos próprios em loopback. A comprovação do comportamento da AWS, IAM, KMS e do CORS publicado pertence ao ensaio em homologação.
