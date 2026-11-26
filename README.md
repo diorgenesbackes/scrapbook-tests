@@ -55,3 +55,7 @@ python3 docker_stack.py --browser
 ## Envio e confirmação de depoimento com foto
 
 `python3 -B photo_submission_stack.py` usa PostgreSQL e um S3 versionado local com SQS, AWS CLI e relógio controlado. Envia uma foto sintética pela autorização HTTP emitida pela API e verifica a associação entre evidência de criação, versão validada, original e recibo. Use `--browser` para executar as jornadas de seleção, captura, interrupção e confirmação no Chromium. Use `--load` para medir admissão, autorização e PUT de 200 fotos em dois eventos com k6. O runner cria e encerra recursos próprios em loopback. A comprovação do comportamento da AWS, IAM, KMS e do CORS publicado pertence ao ensaio em homologação.
+
+## Envio de um momento com conjunto de fotos
+
+`python3 -B moment_photo_submission_stack.py` usa as fixtures do envio de foto, PostgreSQL e Moto em loopback. Exercita conjuntos de uma e dez fotos, manifesto inválido, reconhecimento parcial, autorização por arquivo, último recebimento exatamente às 13h, confirmação integral e saneamento por versão após rejeição ou expiração. O runner confere ordem, legenda, recibo e fatos no banco e encerra os recursos que criou.
