@@ -1,4 +1,5 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
+import { writeFile } from 'node:fs/promises'
 import { decodeQr } from '../invitations/decodeQr'
 
 type LockEvent = { id: string; code: string }
@@ -61,7 +62,7 @@ async function confirmGuestText(browser: Browser, code: string) {
   }
 }
 
-async function waitForLock(page: Page, eventId: string) {
+async function waitForLock(page: Page, eventId: string, timeout = 12_000) {
   await expect.poll(async () => {
     const response = await page.request.get('/api/v1/events/' + eventId, {
       headers: { authorization: ownerAuthorization },
@@ -70,8 +71,34 @@ async function waitForLock(page: Page, eventId: string) {
     expect(response.status()).toBe(200)
     const event = await response.json()
     return event.canEditDetails
-  }, { timeout: 12_000, message: 'A primeira confirmação deve travar os detalhes do evento.' }).toBe(false)
+  }, { timeout, message: 'A primeira confirmação deve travar os detalhes do evento.' }).toBe(false)
 }
+
+test('FR-016 CA3: preserva o recibo durante a falha e reflete a entrega recuperada @recuperacao', async ({ page, browser }) => {
+  test.setTimeout(65_000)
+  const { id, code } = events[0]
+  const readyFile = process.env.SCRAPBOOK_TEST_LOCK_RECOVERY_READY
+  if (!readyFile) throw new Error('Inicie o ensaio de recuperação pelo runner descartável.')
+
+  await page.goto('/meus-eventos/' + id)
+  await expect(page.getByRole('group', { name: 'Editar informações' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Convidar responsável' })).toBeVisible()
+  await confirmGuestText(browser, code)
+
+  const before = await page.request.get('/api/v1/events/' + id, { headers: { authorization: ownerAuthorization } })
+  expect(before.status()).toBe(200)
+  expect(await before.json()).toMatchObject({ canEditDetails: true })
+  await expect(page.getByRole('button', { name: 'Salvar informações' })).toBeVisible()
+  await writeFile(readyFile, 'ready', { flag: 'wx' })
+
+  await waitForLock(page, id, 40_000)
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect(page.getByText(detailsLocked, { exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Convidar responsável' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Salvar abertura' })).toBeEnabled()
+  await expect(page.getByText(guestText)).toHaveCount(0)
+  await expect(page.getByText(guestName)).toHaveCount(0)
+})
 
 test('FR-016 S11: salva antes da confirmação e atualiza a configuração após conflito com a trava', async ({ page, browser }) => {
   const { id, code } = events[0]

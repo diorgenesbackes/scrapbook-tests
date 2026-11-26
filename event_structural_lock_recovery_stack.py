@@ -1,0 +1,270 @@
+import argparse
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from datetime import datetime, timedelta
+import json
+import os
+from pathlib import Path
+import subprocess
+import time
+import unittest
+from uuid import UUID
+
+from docker_stack import ROOT
+from event_stack import EVENTS
+from event_structural_lock_stack import EventStructuralLockStackTests, LOCK_AUDIT
+from mixed_submission_load import MixedSubmissionLoadTests
+from photo_submission_stack import FIRST_FACT
+
+
+APPLIED = "event.structural-lock.applied.v1"
+FAILED = "event.structural-lock.failed.v1"
+
+
+def wait_for(action, message, timeout=22):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        observed = action()
+        if observed:
+            return observed
+        time.sleep(0.2)
+    raise AssertionError(message)
+
+
+class EventStructuralLockRecoveryStackTests(EventStructuralLockStackTests):
+    visibility_timeout = 2
+
+    @contextmanager
+    def reject_writes(self, table, constraint, predicate):
+        self.admin_sql(f"ALTER TABLE scrapbook.{table} ADD CONSTRAINT {constraint} CHECK ({predicate}) NOT VALID;")
+        try:
+            yield
+        finally:
+            self.admin_sql(f"ALTER TABLE scrapbook.{table} DROP CONSTRAINT {constraint};")
+
+    def first_fact(self, event):
+        row = self.stack.app_sql(f"""
+            SELECT message_id, state, attempt_count, correlation_id, payload->>'confirmedAt'
+            FROM scrapbook.outbox_messages WHERE type='{FIRST_FACT}' AND aggregate_id={int(event)};
+        """)
+        if not row:
+            return None
+        message, state, attempts, correlation, confirmed_at = row.split("|")
+        return UUID(message), state, int(attempts), UUID(correlation), confirmed_at
+
+    def outcomes(self, event):
+        return json.loads(self.stack.app_sql(f"""
+            SELECT coalesce(json_agg(json_build_object('type', type, 'status', state, 'version', protocol_version,
+                'id', message_id, 'cause', causation_id, 'correlation', correlation_id,
+                'occurredAt', occurred_at, 'data', payload) ORDER BY id), '[]'::json)
+            FROM scrapbook.outbox_messages
+            WHERE aggregate_type='event' AND aggregate_id={int(event)} AND type IN ('{APPLIED}', '{FAILED}');
+        """))
+
+    def assert_outcome(self, row, event, fact, kind, stage=None):
+        self.assertEqual((kind, "pending", 1, fact[0], fact[3]),
+            (row["type"], row["status"], row["version"], UUID(row["cause"]), UUID(row["correlation"])))
+        self.assertNotEqual(fact[0], UUID(row["id"]))
+        data = row["data"]
+        marker = "lockedAt" if stage is None else "failedAt"
+        expected_keys = {"eventId", "confirmedAt", marker}
+        if stage is not None:
+            expected_keys.update(("stage", "code"))
+            self.assertEqual(stage, data["stage"])
+            self.assertRegex(data["code"], r"^[A-Z_]{1,80}$")
+        self.assertEqual(expected_keys, set(data))
+        self.assertEqual(str(event), data["eventId"])
+        self.assertEqual(datetime.fromisoformat(fact[4]), datetime.fromisoformat(data["confirmedAt"]))
+        occurred = datetime.fromisoformat(row["occurredAt"])
+        outcome_time = datetime.fromisoformat(data[marker])
+        self.assertLess(abs((occurred - outcome_time).total_seconds()), 0.000002)
+        self.assertGreaterEqual(outcome_time, datetime.fromisoformat(data["confirmedAt"]))
+
+    def wait_for_dlq(self):
+        def visible():
+            result = self.aws(("sqs", "get-queue-attributes"), "--queue-url", self.transport["deadLetterQueueUrl"],
+                "--attribute-names", "ApproximateNumberOfMessages")["Attributes"]
+            return int(result["ApproximateNumberOfMessages"]) > 0
+
+        wait_for(visible, "O SQS emulado não encaminhou a entrega esgotada para a DLQ.")
+
+    def recover(self, message):
+        sha = subprocess.check_output(["git", "-C", str(ROOT.parent / "scrapbook-service"), "rev-parse", "HEAD"],
+                                      text=True, timeout=6).strip()
+        result = self.stack.compose_command("exec", "-T", "service", "dotnet", "ScrapBook.Api.dll",
+            "event-structural-lock-recover", "consume", str(message), "INC-F092-LAB", sha, "--rearm", check=False)
+        self.assertEqual((0, "RECOVERY_REOPENED"), (result.returncode, result.stdout.strip()),
+            "O comando autorizado não retomou o fato original.")
+
+    def verify_publish_after_lease_expiry(self):
+        event, code = self.create_photo_event("Recuperação da publicação sem marcação")
+        with self.reject_writes("outbox_messages", "fixture_f092_publish_failure",
+                f"type <> '{FIRST_FACT}' OR aggregate_id <> {int(event)} OR state <> 'published'"):
+            self.confirm_text(code)
+            wait_for(lambda: self.lock_state(event), "A publicação aceita não chegou ao consumidor.")
+            original = self.first_fact(event)
+            self.assertEqual(("publishing", 1), original[1:3])
+            initial_outcomes = self.outcomes(event)
+            self.assertEqual(1, len(initial_outcomes))
+            self.assert_outcome(initial_outcomes[0], event, original, APPLIED)
+
+        def marked_published():
+            current = self.first_fact(event)
+            return current if current[1] == "published" else None
+
+        retried = wait_for(marked_published, "A lease expirada não foi recuperada.", timeout=40)
+        self.assertEqual(original[0], retried[0])
+        self.assertGreaterEqual(retried[2], 2)
+        self.wait_queue_drained()
+        self.assertEqual(initial_outcomes, self.outcomes(event))
+        self.assert_audit(event)
+
+    def verify_consume_recovery(self, event, confirm):
+        invitation = self.invite(event)
+        path = f"{EVENTS}/{int(event)}"
+        with self.reject_writes("audit_entries", "fixture_f092_audit_failure",
+                f"audit_entries_events_id <> {int(event)} OR action <> '{LOCK_AUDIT}'"):
+            confirm()
+            terminal = wait_for(lambda: self.outcomes(event), "O resultado terminal de consumo não foi persistido.")
+            self.wait_for_dlq()
+            self.assertEqual(1, len(terminal))
+            fact = self.first_fact(event)
+            self.assert_outcome(terminal[0], event, fact, FAILED, "consume")
+            self.assertEqual([], self.lock_state(event))
+            detail = self.request(path)[2]
+            self.assertTrue(detail["canEditDetails"])
+            self.assertEqual("pending", self.request(path + "/invitations/current")[2]["state"])
+            opens_on = (self.event_start.date() + timedelta(days=4)).isoformat()
+            response = self.request(path + "/opening-policy", method="PUT", draft={
+                "mode": "scheduled", "opensOn": opens_on, "expectedVersion": detail["version"],
+            })
+            self.assertEqual(200, response[0])
+        self.recover(fact[0])
+        self.wait_for_lock(event)
+        final = self.outcomes(event)
+        self.assertEqual(2, len(final))
+        self.assertEqual(terminal[0], final[0])
+        self.assert_outcome(final[1], event, self.first_fact(event), APPLIED)
+        self.assertEqual(fact[0], self.first_fact(event)[0])
+        self.assert_audit(event)
+        self.assertEqual("invalidated", self.stack.app_sql(f"""
+            SELECT state FROM scrapbook.invitations WHERE id={int(invitation['id'])};
+        """))
+        self.assertEqual("completed", self.stack.app_sql(f"""
+            SELECT state FROM scrapbook.processed_messages WHERE consumer='event-structural-lock'
+                AND source='internal' AND message_id='{fact[0]}';
+        """))
+        self.assertEqual(opens_on, self.request(path)[2]["openingPolicy"]["opensOn"])
+        self.assertEqual(str(fact[0]), self.repeat_first_fact(event))
+        self.wait_queue_drained()
+        self.assertEqual(final, self.outcomes(event))
+        self.assert_audit(event)
+
+    def test_queue_recovery(self):
+        self.configure_lock()
+        self.verify_publish_after_lease_expiry()
+        event, code = self.create_photo_event("Recuperação sintética da trava")
+        self.verify_consume_recovery(event, lambda: self.confirm_text(code))
+
+    def test_queue_drain(self):
+        self.track_lock_commits()
+        self.configure_lock()
+        events = [self.create_photo_event(f"Fila de recuperação sintética {index + 1}") for index in range(20)]
+        drafts = [(code, self.draft(code)) for _, code in events]
+        with self.defer_deduplication():
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                list(executor.map(lambda item: self.confirm_text(*item), drafts))
+
+            def queue_depth():
+                states = self.aws(("sqs", "get-queue-attributes"), "--queue-url", self.transport["queueUrl"],
+                    "--attribute-names", "ApproximateNumberOfMessages", "ApproximateNumberOfMessagesNotVisible")["Attributes"]
+                return sum(int(count) for count in states.values())
+
+            backlog = wait_for(queue_depth, "A fixture não observou acúmulo no SQS.", timeout=4)
+            self.assertEqual("0", self.stack.app_sql("SELECT count(*) FROM scrapbook.events WHERE locked_at IS NOT NULL;"))
+
+        released = time.monotonic()
+        wait_for(lambda: len(self.lock_latencies()) == len(events), "A retomada não drenou todas as confirmações.")
+        self.wait_queue_drained()
+        self.assertEqual(str(len(events)), self.stack.app_sql(f"SELECT count(*) FROM scrapbook.outbox_messages WHERE type='{APPLIED}';"))
+        print(json.dumps({"events": len(events), "sampledBacklog": backlog, "drainSeconds": time.monotonic() - released}),
+              flush=True)
+
+    def test_browser_recovery(self):
+        self.configure_lock()
+        events = [self.create_photo_event(f"Recuperação sintética no navegador {index + 1}") for index in range(2)]
+        ready = self.stack.env_file.parent / "browser-confirmed"
+        environment = self.stack.environment | {
+            "PLAYWRIGHT_BASE_URL": self.origin,
+            "SCRAPBOOK_TEST_LOCK_EVENTS": json.dumps([{"id": str(event), "code": code} for event, code in events]),
+            "SCRAPBOOK_TEST_AUTHORIZATION": self.authorization,
+            "SCRAPBOOK_TEST_OTHER_AUTHORIZATION": self.second_authorization,
+            "SCRAPBOOK_TEST_OTHER_ORIGIN": self.second_origin,
+            "SCRAPBOOK_TEST_LOCK_RECOVERY_READY": str(ready),
+        }
+        environment.pop("NO_COLOR", None)
+        command = ["npm", "exec", "--", "playwright", "test", "--config", "playwright.event-structural-lock.config.ts",
+                   "--grep", "@recuperacao"]
+
+        def run_browser():
+            return subprocess.run(command, cwd=ROOT, env=environment, timeout=90, check=True)
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            def show_receipt():
+                nonlocal browser
+                browser = executor.submit(run_browser)
+
+                def receipt_displayed():
+                    if browser.done():
+                        browser.result()
+                    return ready.exists()
+
+                wait_for(receipt_displayed, "O navegador não observou o recibo durante a falha.")
+
+            browser = None
+            self.verify_consume_recovery(events[0][0], show_receipt)
+            self.assertIsNotNone(browser)
+            browser.result()
+
+
+class EventStructuralLockMixedLoadTests(EventStructuralLockStackTests, MixedSubmissionLoadTests):
+    def configure_photos(self, *, enable_video=False, enable_audio=False):
+        super().configure_photos(enable_video=enable_video, enable_audio=enable_audio)
+        self.configure_transport()
+
+    def publish_receipts(self, batch):
+        observed_at = self.stack.compose_command("exec", "-T", "service", "date", "-u", "+%Y-%m-%dT%H:%M:%S.%NZ").stdout.strip()
+        super().publish_receipts(batch, observed_at=observed_at)
+
+    def test_mixed_submission_load(self):
+        self.track_lock_commits()
+        super().test_mixed_submission_load()
+        wait_for(lambda: len(self.lock_latencies()) == 2, "As duas travas não convergiram no perfil misto.")
+        self.wait_queue_drained()
+        samples = [durable for durable, _ in self.lock_latencies()]
+        self.assertGreaterEqual(min(samples), 0)
+        self.assertLessEqual(max(samples), 5000)
+        self.assertEqual("2", self.stack.app_sql(f"SELECT count(*) FROM scrapbook.outbox_messages WHERE type='{APPLIED}';"))
+        result = {"durableLockMilliseconds": sorted(samples), "events": len(samples), "overFiveSeconds": 0}
+        (self.output / "structural-lock.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+        print(json.dumps(result), flush=True)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Valida a retomada de travas em PostgreSQL e SNS/SQS descartáveis.")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--browser", action="store_true")
+    modes.add_argument("--drain", action="store_true")
+    modes.add_argument("--mixed-output", type=Path)
+    args = parser.parse_args()
+    if args.mixed_output:
+        os.umask(0o077)
+        output = args.mixed_output.resolve()
+        output.mkdir(mode=0o700, parents=True)
+        test = EventStructuralLockMixedLoadTests("test_mixed_submission_load")
+        test.output = output
+    else:
+        scenario = "test_browser_recovery" if args.browser else "test_queue_drain" if args.drain else "test_queue_recovery"
+        test = EventStructuralLockRecoveryStackTests(scenario)
+    suite = unittest.TestSuite([test])
+    raise SystemExit(not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful())

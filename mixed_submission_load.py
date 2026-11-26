@@ -35,11 +35,11 @@ class MixedSubmissionLoadTests(PhotoSubmissionStackTests):
             stopping.wait(0.4)
         return len(published)
 
-    def publish_receipts(self, batch):
+    def publish_receipts(self, batch, *, observed_at=None):
         envelope = {"Records": [{
             "eventVersion": "2.1",
             "eventSource": "aws:s3",
-            "eventTime": utc_timestamp(datetime.fromisoformat(item["LastModified"])),
+            "eventTime": observed_at or utc_timestamp(datetime.fromisoformat(item["LastModified"])),
             "eventName": "ObjectCreated:Put",
             "s3": {
                 "bucket": {"name": self.storage["bucket"]},

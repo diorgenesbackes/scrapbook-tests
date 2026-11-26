@@ -27,6 +27,7 @@ LOCK_AUDIT = "event.structural_lock.applied"
 class EventStructuralLockStackTests(PhotoSubmissionStackTests):
     output: Path | None = None
     include_browser = False
+    visibility_timeout = 30
 
     def configure_clock(self):
         self.clock_file = None
@@ -42,10 +43,13 @@ class EventStructuralLockStackTests(PhotoSubmissionStackTests):
         self.seed_notice(NOTICE, "2020-01-01T00:00:00Z")
 
     def configure_transport(self):
-        fixture = subprocess.run([
+        arguments = [
             sys.executable, "-B", str(INFRASTRUCTURE / "scripts" / "event_structural_lock_fixture.py"),
             "--endpoint", self.storage["endpoint"], "--container", self.storage["container"],
-        ], env=self.stack.environment, text=True, capture_output=True, timeout=45)
+        ]
+        if self.visibility_timeout != 30:
+            arguments.extend(("--visibility-timeout", str(self.visibility_timeout)))
+        fixture = subprocess.run(arguments, env=self.stack.environment, text=True, capture_output=True, timeout=45)
         self.assertEqual(0, fixture.returncode, "Falha ao preparar SNS e SQS locais para a F09.")
         self.transport = json.loads(fixture.stdout)
         override = self.stack.env_file.parent / "structural-lock.compose.json"
@@ -255,7 +259,8 @@ class EventStructuralLockStackTests(PhotoSubmissionStackTests):
             "SCRAPBOOK_TEST_OTHER_ORIGIN": self.second_origin,
         }
         environment.pop("NO_COLOR", None)
-        subprocess.run(["npm", "exec", "--", "playwright", "test", "--config", "playwright.event-structural-lock.config.ts"],
+        subprocess.run(["npm", "exec", "--", "playwright", "test", "--config", "playwright.event-structural-lock.config.ts",
+                        "--grep-invert", "@recuperacao"],
                        cwd=ROOT, env=environment, check=True, timeout=210)
 
     def test_event_structural_lock(self):
