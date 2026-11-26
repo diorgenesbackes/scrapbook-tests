@@ -59,3 +59,9 @@ python3 docker_stack.py --browser
 ## Envio de um momento com conjunto de fotos
 
 `python3 -B moment_photo_submission_stack.py` usa as fixtures do envio de foto, PostgreSQL e Moto em loopback. Exercita conjuntos de uma e dez fotos, manifesto inválido, reconhecimento parcial, autorização por arquivo, último recebimento exatamente às 13h, confirmação integral e saneamento por versão após rejeição ou expiração. O runner confere ordem, legenda, recibo e fatos no banco e encerra os recursos que criou.
+
+## Envio e confirmação de depoimento em áudio
+
+`python3 -B audio_submission_stack.py` usa a stack descartável de mídia para validar MP3, M4A, WAV, Ogg e WebM, os limites de tamanho e duração, a recepção às 13h, o original privado e os fatos de confirmação. Acrescente `--with-browser` para selecionar e gravar áudio no Chromium, retomar o envio e conferir o recibo. Prepare o Chromium pelo comando da fundação local.
+
+`python3 -B mixed_submission_load.py --output /private/tmp/scrapbook-f08-carga` usa k6 para medir 200 tentativas em dois eventos sintéticos, com texto, foto, vídeo e áudio. A pasta de saída deve ser nova. Os relatórios da rodada guardam latência por operação da API, transferência, tempo até o recibo, sobreposição das tentativas, uso de recursos e contagens confirmadas no banco.
