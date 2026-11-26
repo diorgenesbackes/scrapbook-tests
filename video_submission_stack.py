@@ -44,7 +44,7 @@ class VideoSubmissionStackTests(PhotoSubmissionStackTests):
         if rotation is not None:
             rotated = f"/tmp/rotated-{name}"
             self.stack.compose_command("exec", "-T", "service", "ffmpeg", "-v", "error", "-y",
-                "-i", output, "-c", "copy", "-metadata:s:v:0", f"rotate={rotation}", rotated)
+                "-display_rotation", str(rotation), "-i", output, "-c", "copy", rotated)
             output = rotated
         saved = self.stack.env_file.parent / name
         with saved.open("wb") as video:
@@ -111,7 +111,7 @@ class VideoSubmissionStackTests(PhotoSubmissionStackTests):
     def complete_video(self, path, bearer):
         return self.request(path + "/completion", anonymous=True, draft={}, headers={"Authorization": bearer})
 
-    def verify_single_video(self, code, sample, category, expected_state):
+    def verify_single_video(self, code, sample, category, expected_state, *, rotation=None):
         self.set_time(self.admission.isoformat())
         draft = self.video_draft(code, sample, category)
         path, bearer = self.admit(code, draft)
@@ -124,6 +124,9 @@ class VideoSubmissionStackTests(PhotoSubmissionStackTests):
         receipt = self.wait_for_status(path, bearer, expected_state)
         if expected_state == "confirmed":
             self.assertEqual({"state", "confirmedAt"}, set(receipt))
+        if rotation is not None:
+            actual_rotation = self.stack.app_sql(f"SELECT rotation FROM scrapbook.files WHERE client_key = '{file_key}';")
+            self.assertEqual(str(rotation), actual_rotation)
 
     def verify_multipart_video(self, code, other, sample, *, late):
         self.set_time(self.admission.isoformat())
@@ -271,7 +274,7 @@ class VideoSubmissionStackTests(PhotoSubmissionStackTests):
         testimonial = self.video_fixture("mov", 300, rotation=-90)
         large = self.video_fixture("mp4", 2, padded_size=MULTIPART_MIN_BYTES + 101)
         self.verify_single_video(first, moment, "moment", "confirmed")
-        self.verify_single_video(second, testimonial, "testimonial", "confirmed")
+        self.verify_single_video(second, testimonial, "testimonial", "confirmed", rotation=270)
         self.verify_single_video(first, testimonial, "moment", "rejected")
         self.verify_single_video(second, self.video_fixture("webm", 301), "testimonial", "rejected")
         self.verify_multipart_video(first, second, large, late=False)
