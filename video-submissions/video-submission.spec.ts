@@ -160,7 +160,7 @@ async function startVideo(page: Page, code: string, category: Category) {
   await button(page, 'Selecionar vídeo').press('Enter')
 }
 
-async function review(page: Page, category: Category) {
+async function reviewWithCaption(page: Page, category: Category) {
   await expect(preview(page)).toBeVisible()
   await button(page, 'Deseja adicionar uma legenda?').press('Enter')
   await page.getByRole('textbox', { name: 'Legenda do vídeo' }).fill(caption)
@@ -168,6 +168,9 @@ async function review(page: Page, category: Category) {
   await button(page, 'Revisar').press('Enter')
   await expect(page.getByRole('heading', { name: category === 'moment' ? 'Revisar momento' : 'Revisar depoimento' })).toBeFocused()
   await expect(page.getByRole('region', { name: 'Prévia da mídia' }).getByText(caption, { exact: true })).toBeVisible()
+}
+
+async function identify(page: Page) {
   await expect(button(page, 'Enviar')).toBeDisabled()
   await button(page, 'Confirmar identificação').press('Enter')
   await page.getByRole('textbox', { name: 'Nome ou apelido' }).fill(guest)
@@ -179,12 +182,13 @@ async function review(page: Page, category: Category) {
   return blob!
 }
 
-async function admitted(attempt: ReturnType<typeof observeAttempt>, category: Category) {
+async function admitted(attempt: ReturnType<typeof observeAttempt>, category: Category, expectedCaption: string | null = caption) {
   const posts = attempt.requests.filter(request => request.method() === 'POST' && new URL(request.url()).pathname === attempt.base)
   expect(posts).toHaveLength(1)
   const [post] = posts
   const draft = post.postDataJSON()
-  expect(draft).toMatchObject({ category, format: 'video', caption, identification: { guestName: guest } })
+  expect(draft).toMatchObject({ category, format: 'video', identification: { guestName: guest } })
+  expect(draft.caption).toBe(expectedCaption ?? undefined)
   expect(draft.files).toHaveLength(1)
   const manifest: VideoManifest = draft.files[0]
   expect(manifest.fileKey).toMatch(uuid)
@@ -196,8 +200,16 @@ async function admitted(attempt: ReturnType<typeof observeAttempt>, category: Ca
   return { key, authorization: authorization!, path, url: new URL(path, post.url()).href, manifest }
 }
 
-async function assertValidation(page: Page) {
-  await expect(status(page, 'Validando o vídeo. Aguarde a confirmação do recebimento.')).toBeVisible()
+function completionPath(base: string, url: URL) {
+  return url.pathname.startsWith(base + '/') && url.pathname.endsWith('/completion')
+}
+
+function waitForCompletion(page: Page, base: string) {
+  return page.waitForResponse(response => response.request().method() === 'POST' && completionPath(base, new URL(response.url())))
+}
+
+async function assertPreReceiptStatus(page: Page, message: string) {
+  await expect(status(page, message)).toBeVisible()
   await expect(page.getByRole('progressbar')).toHaveCount(0)
   await expect(receipt(page)).toHaveCount(0)
 }
@@ -232,16 +244,19 @@ async function confirm(page: Page, admission: Awaited<ReturnType<typeof admitted
   }
 }
 
-async function sendSingle(page: Page, attempt: ReturnType<typeof observeAttempt>, category: Category, blob: string) {
+async function sendSingle(page: Page, attempt: ReturnType<typeof observeAttempt>, category: Category, blob: string,
+  expectedCaption: string | null = caption) {
   expect(attempt.requests).toHaveLength(0)
   const pending = page.waitForResponse(response => response.request().method() === 'PUT' && isUpload(new URL(response.url())))
+  const completion = lab && waitForCompletion(page, attempt.base)
   await button(page, 'Enviar').press('Enter')
   const put = await pending
   expect(put.status()).toBe(200)
-  const admission = await admitted(attempt, category)
+  const admission = await admitted(attempt, category, expectedCaption)
   let versionId: string | undefined
-  if (lab) {
-    await assertValidation(page)
+  if (lab && completion) {
+    expect((await completion).status()).toBe(202)
+    await assertPreReceiptStatus(page, 'Estamos verificando o recebimento do vídeo.')
     versionId = await notify(lab, put, admission.manifest, 'Put', lab.opening)
   }
   await confirm(page, admission, blob, category, 'Put', versionId)
@@ -258,7 +273,8 @@ for (const sample of samples) {
       name: sample.name, mimeType: sample.mimeType, buffer: fixture,
     })
     await expect.poll(() => preview(page).evaluate((video: HTMLVideoElement) => video.duration)).toBeCloseTo(sample.duration, 1)
-    const blob = await review(page, sample.category)
+    await reviewWithCaption(page, sample.category)
+    const blob = await identify(page)
     const manifest = await sendSingle(page, attempt, sample.category, blob)
     expect(manifest).toEqual({ fileKey: manifest.fileKey, position: 1, declaredMediaType: sample.mimeType,
       sizeBytes: fixture.length, sha256: digest(fixture) })
@@ -274,8 +290,10 @@ test('CA1 e CA4 · envia vídeo gravado no navegador e recebe recibo', async ({ 
     .toBeGreaterThan(1.1)
   await button(page, 'Parar gravação').press('Enter')
   await expect(page.getByLabel('Prévia da câmera')).toHaveCount(0)
-  const blob = await review(page, 'testimonial')
-  const manifest = await sendSingle(page, attempt, 'testimonial', blob)
+  await expect(page.getByRole('heading', { name: 'Revisar depoimento' })).toBeFocused()
+  await expect(preview(page)).toBeVisible()
+  const blob = await identify(page)
+  const manifest = await sendSingle(page, attempt, 'testimonial', blob, null)
   expect(manifest.sizeBytes).toBeGreaterThan(0)
   expect(manifest.declaredMediaType).toMatch(/^video\/(mp4|webm)$/)
 })
@@ -290,6 +308,7 @@ test('CA2 a CA4 · retoma somente partes faltantes e confirma depois de provar a
   const retryMissing = Promise.withResolvers<void>()
   const releaseFirst = Promise.withResolvers<void>()
   const releaseRetry = Promise.withResolvers<void>()
+  const releaseCompletion = Promise.withResolvers<void>()
   let secondGrants = 0
   await page.route(url => url.pathname.startsWith(attempt.base + '/') && url.pathname.endsWith('/upload-authorizations'), async route => {
     const request = route.request()
@@ -312,10 +331,15 @@ test('CA2 a CA4 · retoma somente partes faltantes e confirma depois de provar a
     if (number === 2 && sent.length === 2) return route.abort('connectionreset')
     await route.continue()
   })
+  await page.route(url => completionPath(attempt.base, url), async route => {
+    if (route.request().method() === 'POST') await releaseCompletion.promise
+    await route.continue()
+  })
 
   await startVideo(page, first, 'moment')
   await page.getByLabel('Selecionar vídeo', { exact: true }).setInputFiles(multipartFile)
-  const blob = await review(page, 'moment')
+  await reviewWithCaption(page, 'moment')
+  const blob = await identify(page)
   expect(attempt.requests).toHaveLength(0)
   const progress = page.getByRole('progressbar', { name: 'Transferência do vídeo' })
   try {
@@ -334,22 +358,25 @@ test('CA2 a CA4 · retoma somente partes faltantes e confirma depois de provar a
   const readParts = page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/upload-status'))
   const finalPut = page.waitForResponse(response => response.request().method() === 'PUT' && isUpload(new URL(response.url()))
     && Number(new URL(response.url()).searchParams.get('partNumber')) === parts)
-  const completion = page.waitForResponse(response => {
-    const path = new URL(response.url()).pathname
-    return response.request().method() === 'POST' && path.startsWith(attempt.base + '/') && path.endsWith('/completion')
-  })
+  const completion = waitForCompletion(page, attempt.base)
+  let put: Response
   try {
-    await button(page, 'Tentar novamente').press('Enter')
-    expect(await (await readParts).json()).toMatchObject({ mode: 'multipart', partSizeBytes: partSize, uploadedParts: [1] })
-    await retryMissing.promise
-    await expect(progress).toHaveAttribute('max', String(size))
-    await expect(progress).toHaveAttribute('value', String(partSize))
-    await expect(receipt(page)).toHaveCount(0)
+    try {
+      await button(page, 'Tentar novamente').press('Enter')
+      expect(await (await readParts).json()).toMatchObject({ mode: 'multipart', partSizeBytes: partSize, uploadedParts: [1] })
+      await retryMissing.promise
+      await expect(progress).toHaveAttribute('max', String(size))
+      await expect(progress).toHaveAttribute('value', String(partSize))
+      await expect(receipt(page)).toHaveCount(0)
+    } finally {
+      releaseRetry.resolve()
+    }
+    put = await finalPut
+    expect(put.status()).toBe(200)
+    await assertPreReceiptStatus(page, 'Validando o vídeo. Aguarde a confirmação do recebimento.')
   } finally {
-    releaseRetry.resolve()
+    releaseCompletion.resolve()
   }
-  const put = await finalPut
-  expect(put.status()).toBe(200)
   const completionResponse = await completion
   expect([200, 202]).toContain(completionResponse.status())
   const admission = await admitted(attempt, 'moment')
@@ -368,7 +395,7 @@ test('CA2 a CA4 · retoma somente partes faltantes e confirma depois de provar a
   let versionId: string | undefined
   if (lab) {
     expect((await completionResponse.json()).state).not.toBe('confirmed')
-    await assertValidation(page)
+    await assertPreReceiptStatus(page, 'Estamos verificando o recebimento do vídeo.')
     await setTime(lab.clock, new Date(Date.parse(lab.deadline) + 60_000).toISOString())
     versionId = await notify(lab, put, admission.manifest, 'CompleteMultipartUpload', lab.deadline)
   }
