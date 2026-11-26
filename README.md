@@ -69,3 +69,7 @@ python3 docker_stack.py --browser
 ## Travamento após primeiro registro
 
 `python3 -B event_structural_lock_stack.py` cria uma stack local e descartável com PostgreSQL, SNS e SQS emulados. Confirma texto e mídia, confere a trava estrutural e a auditoria e exercita rejeição, reentrega do fato, corrida com edição e aceite, revogação de convite e política de abertura. Use `--browser` para acrescentar as jornadas Chromium com os eventos do laboratório. `--load --output /private/tmp/scrapbook-f09-carga.json` mede da confirmação à trava persistida em 100 eventos distintos com até 20 solicitações concorrentes. O relógio da aplicação é real nessas rodadas.
+
+`python3 -B event_structural_lock_recovery_stack.py` exercita falha transacional controlada de consumo, DLQ, resultado terminal, retomada autorizada de um fato pelo mesmo `messageId` e deduplicação da entrega recuperada. `--browser` repete o fluxo com a confirmação de recebimento no Chromium e a mudança visível na configuração após a retomada. O runner instala a restrição temporária apenas em PostgreSQL descartável e confere os resultados para a F13 na Outbox.
+
+`python3 -B event_structural_lock_recovery_stack.py --drain` mede a convergência de 20 confirmações após retirar uma espera controlada no consumidor. `--mixed-output /private/tmp/scrapbook-f09-misto` usa o perfil k6 misto da F08 e mede o commit das duas travas distintas. O runner gera as notificações sintéticas de mídia no relógio da API depois de observar cada versão armazenada. A pasta de saída deve ser nova.
