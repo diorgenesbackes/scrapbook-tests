@@ -36,6 +36,12 @@ class EventStructuralLockStackTests(PhotoSubmissionStackTests):
 
     def configure_lock(self):
         self.configure_photos()
+        self.configure_transport()
+        self.prepare()
+        self.set_photo_clock()
+        self.seed_notice(NOTICE, "2020-01-01T00:00:00Z")
+
+    def configure_transport(self):
         fixture = subprocess.run([
             sys.executable, "-B", str(INFRASTRUCTURE / "scripts" / "event_structural_lock_fixture.py"),
             "--endpoint", self.storage["endpoint"], "--container", self.storage["container"],
@@ -49,9 +55,28 @@ class EventStructuralLockStackTests(PhotoSubmissionStackTests):
         }}}}), encoding="utf-8")
         override.chmod(0o600)
         self.stack.compose.extend(("--file", str(override)))
-        self.prepare()
-        self.set_photo_clock()
-        self.seed_notice(NOTICE, "2020-01-01T00:00:00Z")
+
+    def track_lock_commits(self):
+        override = self.stack.env_file.parent / "lock-commit-timing.compose.json"
+        override.write_text(json.dumps({"services": {"postgres": {
+            "command": ["postgres", "-c", "track_commit_timestamp=on"],
+        }}}), encoding="utf-8")
+        self.stack.compose.extend(("--file", str(override)))
+
+    def lock_latencies(self):
+        return [tuple(map(float, line.split("|"))) for line in self.stack.app_sql(f"""
+            SELECT EXTRACT(EPOCH FROM pg_xact_commit_timestamp(event.xmin) - fact.occurred_at) * 1000,
+                EXTRACT(EPOCH FROM event.locked_at - fact.occurred_at) * 1000
+            FROM scrapbook.events AS event
+            JOIN scrapbook.outbox_messages AS fact ON fact.aggregate_id=event.id AND fact.type='{FIRST_FACT}'
+            JOIN scrapbook.records AS record ON record.id=event.first_record_id AND record.records_events_id=event.id
+            WHERE event.locked_at IS NOT NULL
+                AND pg_xact_commit_timestamp(event.xmin) IS NOT NULL
+                AND event.first_record_id::text=fact.payload->>'recordId'
+                AND event.id::text=fact.payload->>'eventId'
+                AND event.first_record_confirmed_at=record.confirmed_at
+                AND record.confirmed_at AT TIME ZONE 'America/Sao_Paulo'=fact.occurred_at;
+        """).splitlines()]
 
     def invite(self, event):
         status, _, invitation = self.request(f"{EVENTS}/{int(event)}/invitations", draft={})
@@ -244,7 +269,9 @@ class EventStructuralLockStackTests(PhotoSubmissionStackTests):
             self.run_lock_browser()
 
     def test_event_structural_lock_load(self):
+        self.track_lock_commits()
         self.configure_lock()
+        self.assertEqual("on", self.stack.app_sql("SHOW track_commit_timestamp;"))
         with ThreadPoolExecutor(max_workers=12) as executor:
             events = list(executor.map(lambda n: self.create_photo_event(f"Carga sintética F09 {n}"), range(100)))
             drafts = list(executor.map(lambda entry: self.draft(entry[1]), events))
@@ -258,16 +285,16 @@ class EventStructuralLockStackTests(PhotoSubmissionStackTests):
                 break
             time.sleep(0.12)
         elapsed = time.monotonic() - started
-        latencies = [float(value) for value in self.stack.app_sql(f"""
-            SELECT EXTRACT(EPOCH FROM event.locked_at - fact.occurred_at) * 1000
-            FROM scrapbook.events AS event
-            JOIN scrapbook.outbox_messages AS fact ON fact.aggregate_id=event.id AND fact.type='{FIRST_FACT}'
-            WHERE event.locked_at IS NOT NULL AND event.first_record_id::text=fact.payload->>'recordId';
-        """).splitlines()]
+        samples = self.lock_latencies()
+        latencies = [committed for committed, _ in samples]
+        internal_latencies = [internal for _, internal in samples]
         report = {"events": 100, "concurrentClients": 20, "observedLocks": len(latencies), "elapsedSeconds": elapsed}
         if len(latencies) > 1:
             report.update(p50Ms=statistics.median(latencies), p95Ms=statistics.quantiles(latencies, n=20, method="inclusive")[18],
-                maxMs=max(latencies), exceededFiveSeconds=sum(value > 5000 for value in latencies))
+                maxMs=max(latencies), exceededFiveSeconds=sum(value > 5000 for value in latencies),
+                internalLockTiming={"p50Ms": statistics.median(internal_latencies),
+                    "p95Ms": statistics.quantiles(internal_latencies, n=20, method="inclusive")[18],
+                    "maxMs": max(internal_latencies)})
         if self.output:
             self.output.write_text(json.dumps(report, indent=2), encoding="utf-8")
         print(json.dumps(report), flush=True)
