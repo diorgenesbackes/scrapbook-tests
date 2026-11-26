@@ -94,6 +94,7 @@ test('FR-016 CA3: preserva o recibo durante a falha e reflete a entrega recupera
   await waitForLock(page, id, 40_000)
   await page.evaluate(() => window.dispatchEvent(new Event('focus')))
   await expect(page.getByText(detailsLocked, { exact: true })).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Editar informações' })).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Convidar responsável' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Salvar abertura' })).toBeEnabled()
   await expect(page.getByText(guestText)).toHaveCount(0)
