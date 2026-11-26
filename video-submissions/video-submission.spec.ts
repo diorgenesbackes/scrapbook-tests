@@ -288,21 +288,28 @@ test('CA2 a CA4 · retoma somente partes faltantes e confirma depois de provar a
   const sent: number[] = []
   const firstMissing = Promise.withResolvers<void>()
   const retryMissing = Promise.withResolvers<void>()
-  const releaseAbort = Promise.withResolvers<void>()
+  const releaseFirst = Promise.withResolvers<void>()
   const releaseRetry = Promise.withResolvers<void>()
+  let secondGrants = 0
+  await page.route(url => url.pathname.startsWith(attempt.base + '/') && url.pathname.endsWith('/upload-authorizations'), async route => {
+    const request = route.request()
+    if (request.method() === 'POST' && request.postDataJSON().partNumber === 2) {
+      secondGrants++
+      if (secondGrants === 1) {
+        firstMissing.resolve()
+        await releaseFirst.promise
+      } else {
+        retryMissing.resolve()
+        await releaseRetry.promise
+      }
+    }
+    await route.continue()
+  })
   await page.route(isUpload, async route => {
     if (route.request().method() !== 'PUT') return route.continue()
     const number = Number(new URL(route.request().url()).searchParams.get('partNumber'))
     sent.push(number)
-    if (number === 2) {
-      if (sent.length === 2) {
-        firstMissing.resolve()
-        await releaseAbort.promise
-        return route.abort('connectionreset')
-      }
-      retryMissing.resolve()
-      await releaseRetry.promise
-    }
+    if (number === 2 && sent.length === 2) return route.abort('connectionreset')
     await route.continue()
   })
 
@@ -319,7 +326,7 @@ test('CA2 a CA4 · retoma somente partes faltantes e confirma depois de provar a
     await expect(button(page, 'Enviar')).toHaveCount(0)
     await expect(receipt(page)).toHaveCount(0)
   } finally {
-    releaseAbort.resolve()
+    releaseFirst.resolve()
   }
   await expect(status(page, 'O envio foi interrompido. Tente novamente.')).toBeVisible()
   await expect(receipt(page)).toHaveCount(0)
