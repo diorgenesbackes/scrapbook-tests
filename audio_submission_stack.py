@@ -195,6 +195,8 @@ class AudioSubmissionStackTests(PhotoSubmissionStackTests):
         self.assertIsNotNone(retained)
         excessive = self.audio_wav("over.wav", frames=301 * 8000, rate=8000, channels=1)
         self.verify_audio(second, first, excessive, "audio/wav", state="rejected")
+        delayed = (AUDIO_FIXTURES / "audio-timeline.m4a").read_bytes()
+        self.verify_audio(second, first, delayed, "audio/mp4", state="rejected")
         maximum = self.audio_wav("size-limit.wav", frames=(MAX_AUDIO_BYTES - 44) // 4, rate=48000, channels=2)
         self.assertEqual(MAX_AUDIO_BYTES, len(maximum))
         self.verify_audio(first, second, maximum, "audio/wav")
