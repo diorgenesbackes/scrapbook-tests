@@ -81,17 +81,22 @@ class EventStructuralLockRecoveryStackTests(EventStructuralLockStackTests):
         self.assertLess(abs((occurred - outcome_time).total_seconds()), 0.000002)
         self.assertGreaterEqual(outcome_time, datetime.fromisoformat(data["confirmedAt"]))
 
-    def read_deliveries(self, queue, visibility=15, limit=10):
+    def read_deliveries(self, queue, visibility=15, limit=10, wait=1):
         response = self.aws(("sqs", "receive-message"), "--queue-url", queue,
-            "--wait-time-seconds", "1", "--visibility-timeout", str(visibility), "--max-number-of-messages", str(limit))
+            "--wait-time-seconds", str(wait), "--visibility-timeout", str(visibility), "--max-number-of-messages", str(limit))
         return [delivery["Body"] for delivery in response.get("Messages", [])]
 
     def read_dead_letter(self, message):
         queue = self.transport["deadLetterQueueUrl"]
 
         def find():
-            return next((body for body in self.read_deliveries(queue, visibility=1, limit=1)
-                if json.loads(body).get("messageId") == str(message)), None)
+            for body in self.read_deliveries(queue, visibility=1, limit=1, wait=0):
+                envelope = json.loads(body)
+                self.assertEqual(FIRST_FACT, envelope.get("type"), "A DLQ retornou um tipo diferente da primeira confirmação.")
+                self.assertTrue(envelope.get("messageId") == str(message),
+                    "A entrega na DLQ pertence a outra confirmação sintética.")
+                return body
+            return None
 
         try:
             return wait_for(find, "O SQS emulado não preservou o envelope original na DLQ.", timeout=30)
