@@ -329,7 +329,8 @@ class EventStructuralLockMixedLoadTests(EventStructuralLockStackTests, MixedSubm
         self.configure_transport()
 
     def publish_receipts(self, batch):
-        observed_at = self.stack.compose_command("exec", "-T", "service", "date", "-u", "+%Y-%m-%dT%H:%M:%S.%NZ").stdout.strip()
+        clock = self.stack.compose_command("exec", "-T", "service", "date", "-u", "+%Y-%m-%dT%H:%M:%S.%NZ")
+        observed_at = datetime.fromisoformat(clock.stdout.strip()).isoformat(timespec="microseconds").replace("+00:00", "Z")
         super().publish_receipts(batch, observed_at=observed_at)
 
     def test_mixed_submission_load(self):
