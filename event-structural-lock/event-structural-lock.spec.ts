@@ -79,6 +79,7 @@ test('FR-016 S11: salva antes da confirmação e atualiza a configuração após
   const apiPath = '/api/v1/events/' + id + '/details'
   const savedName = 'Nome salvo antes do primeiro registro'
   const savedWelcome = 'Boas-vindas salvas antes do primeiro registro.'
+  const welcome = page.getByRole('paragraph').filter({ hasText: savedWelcome })
   const saveDetails = page.getByRole('button', { name: 'Salvar informações' })
   const details = page.getByRole('group', { name: 'Editar informações' })
 
@@ -90,7 +91,7 @@ test('FR-016 S11: salva antes da confirmação e atualiza a configuração após
   await saveDetails.press('Enter')
   await expect(page.getByRole('status').filter({ hasText: 'Informações salvas.' })).toBeVisible()
   await expect(page.getByRole('heading', { name: savedName, level: 1 })).toBeVisible()
-  await expect(page.getByText(savedWelcome, { exact: true })).toBeVisible()
+  await expect(welcome).toHaveText(savedWelcome)
 
   const opening = page.getByRole('group', { name: 'Política de abertura' })
   await opening.getByLabel('Modo de abertura').selectOption('scheduled')
@@ -123,7 +124,7 @@ test('FR-016 S11: salva antes da confirmação e atualiza a configuração após
   await expect(saveDetails).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Convidar responsável' })).toHaveCount(0)
   await expect(page.getByRole('heading', { name: savedName, level: 1 })).toBeVisible()
-  await expect(page.getByText(savedWelcome, { exact: true })).toBeVisible()
+  await expect(welcome).toHaveText(savedWelcome)
   await expect(page.getByText(guestText)).toHaveCount(0)
   await expect(page.getByText(guestName)).toHaveCount(0)
 
