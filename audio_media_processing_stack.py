@@ -1,4 +1,5 @@
 import argparse
+import base64
 from datetime import datetime, timedelta
 from hashlib import sha256
 import json
@@ -197,6 +198,19 @@ class AudioMediaProcessingStackTests(AudioSubmissionStackTests, MediaProcessingS
 
         row = self.await_audio(submitted, "O job ainda não teve a intenção e o ID persistidos.")
         self.assertEqual(("t", ""), (row[11], row[5]))
+        snapshot, within_attempt = self.stack.app_sql(f"""
+            SELECT j.profile::text, a.provider_submit_started_at >= a.started_at
+            FROM scrapbook.processing_jobs AS j
+            JOIN scrapbook.processing_attempts AS a ON a.processing_attempts_processing_jobs_id = j.id
+            WHERE j.processing_jobs_files_id = {file};
+        """).rsplit("|", 1)
+        plan = json.loads(snapshot)
+        self.assertEqual("t", within_attempt)
+        self.assertEqual((self.job_queue, self.job_role, 48000, 1, 96000), tuple(
+            plan["Profile"][field] for field in ("QueueArn", "JobRoleArn", "SampleRate", "Channels", "Bitrate")))
+        staged = plan["Input"]["Object"]
+        self.assertEqual(f"submissions/transcode-input/{file}/{UUID(row[4]).hex}/input", staged["Key"])
+        self.assertEqual((row[14], row[13]), (staged["VersionId"], base64.b64decode(staged["Sha256"]).hex()))
         self.assert_receipt(code, draft, submission)
         self.provider("/fixture/complete", {"attempt": UUID(row[4]).hex})
         self.assert_audio_available(file)
@@ -239,7 +253,7 @@ class AudioMediaProcessingStackTests(AudioSubmissionStackTests, MediaProcessingS
         self.provider("/fixture/mode", {"mode": "complete"})
         event, first = self.create_photo_event("Áudio transcodificado a partir do navegador")
         retry, second = self.create_photo_event("Áudio retomado no navegador")
-        self.run_audio_browser(first, second, grep=r"envia tone\.webm|retoma o PUT")
+        self.run_audio_browser(first, second, grep=r"envia tone\.webm|retoma o PUT", include_mobile=True)
         records = self.stack.app_sql(f"""
             SELECT f.id FROM scrapbook.files AS f JOIN scrapbook.records AS r ON r.id = f.files_records_id
             WHERE r.records_events_id IN ({event}, {retry}) AND r.state = 'confirmed' ORDER BY f.id;
