@@ -346,6 +346,16 @@ class MediaProcessingStackTests(MomentPhotoSubmissionStackTests):
         subprocess.run(["docker", "kill", primary, one_off], env=self.stack.environment,
             capture_output=True, check=True, timeout=20)
 
+    def terminate_disconnected_promotion_sessions(self):
+        self.admin_sql(f"""
+            SELECT pg_terminate_backend(activity.pid, 5000)
+            FROM pg_catalog.pg_locks AS waiting
+            JOIN pg_catalog.pg_stat_activity AS activity ON activity.pid = waiting.pid
+            WHERE waiting.locktype = 'advisory' AND waiting.classid = 0
+                AND waiting.objid = {PROMOTION_GATE} AND NOT waiting.granted
+                AND activity.usename = 'scrapbook_app' AND activity.datname = current_database();
+        """)
+
     def start_replicas(self):
         self.stack.compose_command("start", "--wait", "service")
         subprocess.run(["docker", "start", self.stack.project + "-other"], env=self.stack.environment,
@@ -357,29 +367,35 @@ class MediaProcessingStackTests(MomentPhotoSubmissionStackTests):
         _, code = self.create_photo_event("Retomada de duas réplicas de fotos")
         observer = self.subscribe("fixture-f1001-observer")
         draft = self.photo_draft(code, *SMALL.sample())
-        with self.pause_promotion():
-            submission = self.submit_photos(code, draft, [SMALL.sample()])
-            file, = self.file_ids(submission[0])
-            body, message_id = self.capture_envelope(observer, file)
-            self.wait_for(lambda: self.promotion_sessions(granted=False),
-                "Nenhuma réplica aguardou a promoção depois das duas gravações no S3.")
-            observed = self.aws(("s3api", "list-object-versions"), "--bucket", self.storage["bucket"],
-                "--prefix", f"submissions/derived/{file}/").get("Versions", [])
-            self.assertEqual(["image.jpg", "thumbnail.jpg"], sorted(item["Key"].rsplit("/", 1)[1] for item in observed))
-            self.assertTrue(all(item["VersionId"] and item["VersionId"] != "null" for item in observed))
-            self.assertEqual("processing|0", self.stack.app_sql(f"""
-                SELECT file.processing_state,
-                       (SELECT count(*) FROM scrapbook.file_variants AS variant
-                        WHERE variant.file_variants_files_id = file.id AND variant.state = 'ready')
-                FROM scrapbook.files AS file WHERE file.id = {file};
-            """))
-            original_ref = self.original(file)
-            self.assert_receipt(code, draft, submission)
-            self.kill_replicas()
-            self.wait_for(lambda: self.promotion_sessions(granted=False) == 0,
-                "A queda das réplicas não encerrou a promoção interrompida.", timeout=15)
+        stopping = False
+        try:
+            with self.pause_promotion():
+                submission = self.submit_photos(code, draft, [SMALL.sample()])
+                file, = self.file_ids(submission[0])
+                body, message_id = self.capture_envelope(observer, file)
+                self.wait_for(lambda: self.promotion_sessions(granted=False),
+                    "Nenhuma réplica aguardou a promoção depois das duas gravações no S3.")
+                observed = self.aws(("s3api", "list-object-versions"), "--bucket", self.storage["bucket"],
+                    "--prefix", f"submissions/derived/{file}/").get("Versions", [])
+                self.assertEqual(["image.jpg", "thumbnail.jpg"], sorted(item["Key"].rsplit("/", 1)[1] for item in observed))
+                self.assertTrue(all(item["VersionId"] and item["VersionId"] != "null" for item in observed))
+                self.assertEqual("processing|0", self.stack.app_sql(f"""
+                    SELECT file.processing_state,
+                           (SELECT count(*) FROM scrapbook.file_variants AS variant
+                            WHERE variant.file_variants_files_id = file.id AND variant.state = 'ready')
+                    FROM scrapbook.files AS file WHERE file.id = {file};
+                """))
+                original_ref = self.original(file)
+                self.assert_receipt(code, draft, submission)
+                stopping = True
+                self.kill_replicas()
+                self.terminate_disconnected_promotion_sessions()
+                self.wait_for(lambda: self.promotion_sessions(granted=False) == 0,
+                    "A queda das réplicas não encerrou a promoção interrompida.", timeout=15)
+        finally:
+            if stopping:
+                self.start_replicas()
 
-        self.start_replicas()
         delivery_type = json.dumps({"type": {"DataType": "String", "StringValue": PHOTO_FACT}})
         for _ in range(2):
             self.aws(("sns", "publish"), "--topic-arn", self.topic, "--message", body,
@@ -428,7 +444,7 @@ class MediaProcessingStackTests(MomentPhotoSubmissionStackTests):
                  AND failure.causation_id = confirmation.message_id
                  AND failure.payload->>'fileId' = file.id::text
                  AND failure.payload->>'recordId' = record.id::text
-                 AND failure.payload->>'eventId' = record.records_events_id::text
+                 AND failure.aggregate_type = 'event' AND failure.aggregate_id = record.records_events_id
             WHERE file.id = {file};
         """).splitlines()
 
