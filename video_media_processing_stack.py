@@ -30,7 +30,8 @@ def ffmpeg(*args):
         capture_output=True, check=True, timeout=50)
 
 
-def source_video(target, width, height, rate, *, seconds=3, audio=False, filters=(), codec=None, rotation=None):
+def source_video(target, width, height, rate, *, seconds=3, audio=False, filters=(), codec=None, rotation=None,
+                 pixel_format="yuv420p"):
     video = ("-f", "lavfi", "-i", f"testsrc2=size={width}x{height}:rate={rate}")
     sound = ("-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000") if audio else ()
     webm = target.suffix == ".webm"
@@ -40,11 +41,21 @@ def source_video(target, width, height, rate, *, seconds=3, audio=False, filters
     conversions = ("-vf", ",".join(filters), "-fps_mode", "vfr") if filters else ()
     timescale = () if webm else ("-video_track_timescale", 24000)
     unrotated = target.with_name("unrotated" + target.suffix) if rotation else target
-    ffmpeg(*video, *sound, "-t", seconds, "-filter_threads", 1, *conversions, "-pix_fmt", "yuv420p",
+    ffmpeg(*video, *sound, "-t", seconds, "-filter_threads", 1, *conversions, "-pix_fmt", pixel_format,
         "-threads", 1, "-c:v", codec, *encoding, *audio_output, *timescale, unrotated)
     if rotation:
         ffmpeg("-display_rotation", rotation, "-i", unrotated, "-c", "copy", target)
         unrotated.unlink()
+    return target
+
+
+def video_with_longer_second_audio(target):
+    ffmpeg("-f", "lavfi", "-i", "testsrc2=size=176x144:rate=24:duration=3",
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=3",
+        "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000:duration=5",
+        "-map", "0:v", "-map", "1:a", "-map", "2:a", "-pix_fmt", "yuv420p",
+        "-threads", 1, "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac",
+        "-video_track_timescale", 24000, target)
     return target
 
 
@@ -75,6 +86,10 @@ class VideoMediaProcessingStackTests(AudioMediaProcessingStackTests, VideoSubmis
                 filters=("select='gte(t,1.5)+not(mod(n,2))'",)), 256, 144, "12", 0),
             VideoCase("limite HD", source_video(workspace / "large.mp4", 2048, 1152, 24),
                 1920, 1080, "24", 0),
+            VideoCase("áudio principal", video_with_longer_second_audio(workspace / "multiple-audio.mp4"),
+                176, 144, "24", 1),
+            VideoCase("rotação em 4:4:4", source_video(workspace / "rotation-444.mov", 352, 288, 24,
+                rotation=90, pixel_format="yuv444p"), 288, 352, "24", 0, "DEGREES_270"),
         ]
         browser = VideoCase("navegador", ROOT / "media/fixtures/short.mov", 640, 360, "24", 0)
         catalog = []
