@@ -25,8 +25,8 @@ FAILURE_FACT = "record.media-preparation.failed.v1"
 class AudioMediaProcessingStackTests(AudioSubmissionStackTests, MediaProcessingStackTests):
     include_browser = False
 
-    def configure_audio_processing(self):
-        self.configure_photos(enable_audio=True)
+    def configure_audio_processing(self, *, enable_video=False):
+        self.configure_photos(enable_audio=True, enable_video=enable_video)
         self.topic = self.aws(("sns", "create-topic"), "--name", "fixture-f1002")["TopicArn"]
         self.queue = self.subscribe("fixture-f1002-confirmation")
         self.result_queue = self.aws(("sqs", "create-queue"), "--queue-name",
@@ -47,6 +47,7 @@ class AudioMediaProcessingStackTests(AudioSubmissionStackTests, MediaProcessingS
             "MediaProcessing__SnsServiceUrl": internal,
             "MediaProcessing__SqsServiceUrl": internal,
             "MediaAudioProcessing__Enabled": "true",
+            "MediaAudioProcessing__VideoEnabled": str(enable_video).lower(),
             "MediaAudioProcessing__Region": region,
             "MediaAudioProcessing__QueueArn": self.job_queue,
             "MediaAudioProcessing__JobRoleArn": self.job_role,
@@ -88,6 +89,8 @@ class AudioMediaProcessingStackTests(AudioSubmissionStackTests, MediaProcessingS
             command.extend(("--env", name))
         for source, destination in ((binary, "server.py"), (reference, "reference.m4a"), (self.clock_file, "clock.txt")):
             command.extend(("--mount", f"type=bind,src={source},dst=/fixture/{destination},readonly"))
+        if video_references := getattr(self, "video_references", None):
+            command.extend(("--mount", f"type=bind,src={video_references},dst=/fixture/video,readonly"))
         subprocess.run([*command, IMAGE, "/fixture/server.py"], env=environment, text=True,
             capture_output=True, check=True, timeout=40)
         self.addCleanup(self.stop_provider)

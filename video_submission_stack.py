@@ -290,7 +290,7 @@ class VideoSubmissionStackTests(PhotoSubmissionStackTests):
         if self.include_video_browser:
             self.run_video_browser(first, second, large)
 
-    def run_video_browser(self, first, second, sample):
+    def run_video_browser(self, first, second, sample, *, grep=None):
         fixture = self.stack.env_file.parent / "video-fixture.json"
         fixture.write_text(json.dumps(self.storage), encoding="utf-8")
         fixture.chmod(0o600)
@@ -305,7 +305,8 @@ class VideoSubmissionStackTests(PhotoSubmissionStackTests):
             "SCRAPBOOK_TEST_VIDEO_MULTIPART_FILE": str(sample),
         }
         environment.pop("NO_COLOR", None)
-        subprocess.run(["npm", "exec", "--", "playwright", "test", "--config", "playwright.video-submission.config.ts"],
+        subprocess.run(["npm", "exec", "--", "playwright", "test", "--config", "playwright.video-submission.config.ts",
+            *(("--grep", grep) if grep else ())],
             cwd=ROOT, env=environment, check=True, timeout=450)
 
 
