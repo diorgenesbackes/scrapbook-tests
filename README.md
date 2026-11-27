@@ -109,6 +109,6 @@ Execute `TMPDIR=/private/tmp python3 -B audio_media_processing_stack.py` com Doc
 
 ### Preparação privada de vídeo da F10
 
-Execute `python3 -B video_media_processing_stack.py` para validar a F08 e a F10 com PostgreSQL, S3 versionado, SNS/SQS e uma fixture local do contrato do MediaConvert. O runner gera amostras sintéticas MP4, MOV e WebM e referências H.264/AAC verificáveis com FFmpeg no host. Exercita rotação, aspecto anamórfico, VFR, limite de resolução, saída muda ou sonora, resultado sem objeto, resposta perdida, reentrega após prontidão e saída inválida. Confira o comportamento real da conversão e dos eventos separadamente em homologação AWS.
+Execute `python3 -B video_media_processing_stack.py` para validar a F08 e a F10 com PostgreSQL, S3 versionado, SNS/SQS e uma fixture local do contrato do MediaConvert. O runner gera amostras sintéticas MP4, MOV e WebM e referências H.264/AAC verificáveis com FFmpeg no host. Exercita rotação, preparação de fonte 4:4:4, seleção da faixa de áudio principal, aspecto anamórfico, VFR, limite de resolução, saída muda ou sonora, resultado sem objeto, resposta perdida, reentrega após prontidão e saída inválida. Confira o comportamento real da conversão e dos eventos separadamente em homologação AWS.
 
 Use `--browser` para incluir os envios de MOV e WebM e verificar as variantes prontas no banco após os recibos. O laboratório cria recursos descartáveis em loopback. Consulte o [runner de vídeo F08](video_submission_stack.py) para os pré-requisitos do navegador.
