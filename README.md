@@ -102,3 +102,7 @@ Esse modo confirma os recibos pela interface em Chromium desktop e Android emula
 | CA4, T10 | Duas réplicas, queda depois das duas escritas no S3 com commit bloqueado, reentrega SNS/SQS após reiniciar, uma única dupla promovida e falha definitiva de integridade com correlação para a F13. O original e o recibo permanecem íntegros. |
 
 O relógio controlado avança a lease da tentativa interrompida. O bloqueio de commit e a divergência temporária do checksum são injetados somente no PostgreSQL descartável. A verificação cobre o armazenamento e a mensageria locais emulados.
+
+### Preparação de áudio da F10 em laboratório
+
+Execute `TMPDIR=/private/tmp python3 -B audio_media_processing_stack.py` com Docker e FFmpeg/ffprobe disponíveis. Acrescente `--browser` após instalar as dependências do Playwright e Chromium para executar as jornadas selecionadas de envio WebM e retomada. A suíte sobe stack descartável em loopback com PostgreSQL, S3 versionado, SNS/SQS e a interface HTTP de contrato do MediaConvert. Usa entradas sintéticas MP3, M4A, WAV, OGG e WebM aceitas pela F08 e publica uma saída M4A/AAC real de referência na fixture. Exercita recibo anterior ao processamento, perda de resposta após `CreateJob`, evento antecipado e duplicado, saída inválida e integridade da variante privada. A verificação do provedor gerenciado e de suas permissões ocorre em homologação.
