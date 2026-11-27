@@ -106,3 +106,9 @@ O relógio controlado avança a lease da tentativa interrompida. O bloqueio de c
 ### Preparação de áudio da F10 em laboratório
 
 Execute `TMPDIR=/private/tmp python3 -B audio_media_processing_stack.py` com Docker e FFmpeg/ffprobe disponíveis. Acrescente `--browser` após instalar as dependências do Playwright e Chromium para executar as jornadas selecionadas de envio WebM e retomada. A suíte sobe stack descartável em loopback com PostgreSQL, S3 versionado, SNS/SQS e a interface HTTP de contrato do MediaConvert. Usa entradas sintéticas MP3, M4A, WAV, OGG e WebM aceitas pela F08 e publica uma saída M4A/AAC real de referência na fixture. Exercita recibo anterior ao processamento, perda de resposta após `CreateJob`, evento antecipado e duplicado, saída inválida e integridade da variante privada. A verificação do provedor gerenciado e de suas permissões ocorre em homologação.
+
+### Preparação privada de vídeo da F10
+
+Execute `python3 -B video_media_processing_stack.py` para validar a F08 e a F10 com PostgreSQL, S3 versionado, SNS/SQS e uma fixture local do contrato do MediaConvert. O runner gera amostras sintéticas MP4, MOV e WebM e referências H.264/AAC verificáveis com FFmpeg no host. Exercita rotação, aspecto anamórfico, VFR, limite de resolução, saída muda ou sonora, resultado sem objeto, resposta perdida, reentrega após prontidão e saída inválida. Confira o comportamento real da conversão e dos eventos separadamente em homologação AWS.
+
+Use `--browser` para incluir os envios de MOV e WebM e verificar as variantes prontas no banco após os recibos. O laboratório cria recursos descartáveis em loopback. Consulte o [runner de vídeo F08](video_submission_stack.py) para os pré-requisitos do navegador.
