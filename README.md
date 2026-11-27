@@ -73,3 +73,32 @@ python3 docker_stack.py --browser
 `python3 -B event_structural_lock_recovery_stack.py` exercita falha transacional controlada de consumo, DLQ, resultado terminal, retomada autorizada de um fato pelo mesmo `messageId` e deduplicação da entrega recuperada. `--browser` repete o fluxo com a confirmação de recebimento no Chromium e a mudança visível na configuração após a retomada. O runner instala a restrição temporária apenas em PostgreSQL descartável e confere os resultados para a F13 na Outbox.
 
 `python3 -B event_structural_lock_recovery_stack.py --drain` mede a convergência de 20 confirmações após retirar uma espera controlada no consumidor. `--mixed-output /private/tmp/scrapbook-f09-misto` usa o perfil k6 misto da F08 e mede o commit das duas travas distintas. O runner gera as notificações sintéticas de mídia no relógio da API depois de observar cada versão armazenada. A pasta de saída deve ser nova.
+
+## F10-STORY-001 · Preparação de fotos
+
+Com os candidatos de serviço, UI, infraestrutura e Liquibase em diretórios irmãos, execute no repositório de testes
+
+```sh
+python3 -B media_processing_stack.py
+```
+
+O comando exige Docker com Compose v2, Liquibase, AWS CLI v2, Python 3 com timezone `America/Sao_Paulo` e `ffmpeg`/`ffprobe` no PATH. Ele cria PostgreSQL, Moto com S3 versionado e SNS/SQS, UI e duas réplicas do serviço com portas próprias em loopback. A suíte descarta contêineres, volumes e massa ao terminar. Em Docker alternativo, selecione o contexto local com `DOCKER_CONTEXT`. Se o Docker rodar em VM, use um `TMPDIR` que ela consiga montar para compartilhar o relógio da fixture.
+
+Para incluir as jornadas Playwright da F08 com seleção e câmera emulada, instale as dependências pelo lockfile e execute
+
+```sh
+npm ci
+npm exec -- playwright install chromium
+python3 -B media_processing_stack.py --browser
+```
+
+Esse modo confirma os recibos pela interface em Chromium desktop e Android emulado e verifica a prontidão das duas variantes de cada foto após a jornada. O JUnit do navegador fica em `test-results/photo-submissions.xml`. A variante privada é inspecionada no ambiente descartável via PostgreSQL e S3.
+
+| Critério | Verificação automatizada |
+| --- | --- |
+| CA1, T09 | Recibos F08 preservados, uma admissão por arquivo confirmado de momento e depoimento, zero trabalhos para texto ou momento rejeitado. |
+| CA2, T09 | Orientação nos pixels, proporção, limites de 2.048 e 400 px, JPEG decodificável, fundo branco do PNG transparente, HEIC, foto pequena e ausência de EXIF, XMP e IPTC. |
+| CA3, T09 | Estado disponível, referências privadas versionadas, escopo consistente por arquivo, checksum e as duas variantes prontas no mesmo commit. |
+| CA4, T10 | Duas réplicas, queda depois das duas escritas no S3 com commit bloqueado, reentrega SNS/SQS após reiniciar, uma única dupla promovida e falha definitiva de integridade com correlação para a F13. O original e o recibo permanecem íntegros. |
+
+O relógio controlado avança a lease da tentativa interrompida. O bloqueio de commit e a divergência temporária do checksum são injetados somente no PostgreSQL descartável. A verificação cobre o armazenamento e a mensageria locais emulados.
