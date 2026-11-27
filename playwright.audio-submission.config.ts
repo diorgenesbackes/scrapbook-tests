@@ -13,6 +13,9 @@ if (!protocols.includes(url.protocol) || url.username || url.password || url.sea
   throw new Error('Informe a origem loopback da stack local ou a origem HTTPS do ambiente de desenvolvimento.')
 }
 
+const launchOptions = { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] }
+const includeMobile = process.env.SCRAPBOOK_TEST_AUDIO_MOBILE === 'true'
+
 export default defineConfig({
   testDir: './audio-submissions',
   workers: 1,
@@ -26,7 +29,10 @@ export default defineConfig({
     use: {
       ...devices['Desktop Chrome'],
       viewport: { width: 320, height: 740 },
-      launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] },
+      launchOptions,
     },
-  }],
+  }, ...(includeMobile ? [{
+    name: 'chromium-android',
+    use: { ...devices['Pixel 7'], launchOptions },
+  }] : [])],
 })

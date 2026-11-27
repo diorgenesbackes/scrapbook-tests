@@ -162,7 +162,7 @@ class AudioSubmissionStackTests(PhotoSubmissionStackTests):
             self.assertEqual(self.received_at, arrival)
         return key, row[10], row[9]
 
-    def run_audio_browser(self, first, second, *, grep=None):
+    def run_audio_browser(self, first, second, *, grep=None, include_mobile=False):
         fixture = self.stack.env_file.parent / "audio-fixture.json"
         fixture.write_text(json.dumps(self.storage), encoding="utf-8")
         fixture.chmod(0o600)
@@ -174,6 +174,7 @@ class AudioSubmissionStackTests(PhotoSubmissionStackTests):
             "SCRAPBOOK_TEST_AUDIO_FIXTURE": str(fixture),
             "SCRAPBOOK_TEST_AUDIO_OPEN": utc_timestamp(self.admission),
             "SCRAPBOOK_TEST_AUDIO_DEADLINE": utc_timestamp(self.deadline),
+            "SCRAPBOOK_TEST_AUDIO_MOBILE": str(include_mobile).lower(),
         }
         env.pop("NO_COLOR", None)
         subprocess.run(["npm", "exec", "--", "playwright", "test", "--config", "playwright.audio-submission.config.ts",
